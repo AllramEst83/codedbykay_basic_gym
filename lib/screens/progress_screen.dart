@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../data/sample_data.dart';
+import '../data/session_store.dart';
 import '../models/workout.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
@@ -276,16 +278,46 @@ class _HistoryHeader extends StatelessWidget {
   }
 }
 
-class _HistoryList extends StatelessWidget {
+class _HistoryList extends StatefulWidget {
   const _HistoryList();
 
   @override
+  State<_HistoryList> createState() => _HistoryListState();
+}
+
+class _HistoryListState extends State<_HistoryList> {
+  @override
+  void initState() {
+    super.initState();
+    SessionStore.instance.addListener(_onStoreChanged);
+  }
+
+  @override
+  void dispose() {
+    SessionStore.instance.removeListener(_onStoreChanged);
+    super.dispose();
+  }
+
+  void _onStoreChanged() => setState(() {});
+
+  @override
   Widget build(BuildContext context) {
-    final items = SampleData.history;
+    final items = SessionStore.instance.sessions.take(5).toList();
+    if (items.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+        child: Text(
+          'No workouts recorded yet.',
+          style: AppTextStyles.bodyMd.copyWith(
+            color: AppColors.onSurfaceVariant,
+          ),
+        ),
+      );
+    }
     return Column(
       children: [
         for (var i = 0; i < items.length; i++) ...[
-          _HistoryCard(entry: items[i]),
+          _HistoryCard(session: items[i]),
           if (i < items.length - 1) const SizedBox(height: AppSpacing.sm),
         ],
       ],
@@ -294,19 +326,46 @@ class _HistoryList extends StatelessWidget {
 }
 
 class _HistoryCard extends StatelessWidget {
-  const _HistoryCard({required this.entry});
+  const _HistoryCard({required this.session});
 
-  final WorkoutHistoryEntry entry;
+  final WorkoutSession session;
 
   ({Color bg, Color fg}) _iconPalette() {
-    switch (entry.category) {
+    switch (session.category) {
       case WorkoutCategory.strength:
-        return (bg: AppColors.primaryContainer, fg: AppColors.onPrimaryContainer);
+        return (
+          bg: AppColors.primaryContainer,
+          fg: AppColors.onPrimaryContainer
+        );
       case WorkoutCategory.cardio:
-        return (bg: AppColors.secondaryContainer, fg: AppColors.onSecondaryContainer);
+        return (
+          bg: AppColors.secondaryContainer,
+          fg: AppColors.onSecondaryContainer
+        );
       case WorkoutCategory.yoga:
-        return (bg: AppColors.tertiaryContainer, fg: AppColors.onTertiaryContainer);
+        return (
+          bg: AppColors.tertiaryContainer,
+          fg: AppColors.onTertiaryContainer
+        );
     }
+  }
+
+  String _dateLabel() {
+    final now = DateTime.now();
+    final d = session.completedAt;
+    if (DateUtils.isSameDay(d, now)) return 'Today';
+    if (DateUtils.isSameDay(d, now.subtract(const Duration(days: 1)))) {
+      return 'Yesterday';
+    }
+    return DateFormat('EEE, MMM d').format(d);
+  }
+
+  String _subtitle() {
+    final mins = (session.durationSeconds / 60).round();
+    if (session.distanceKm != null) {
+      return '${session.distanceKm!.toStringAsFixed(2)} km • $mins min';
+    }
+    return '$mins min';
   }
 
   @override
@@ -330,7 +389,7 @@ class _HistoryCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(AppRadius.md),
               ),
               alignment: Alignment.center,
-              child: Icon(entry.category.icon, size: 32, color: p.fg),
+              child: Icon(session.category.icon, size: 32, color: p.fg),
             ),
             const SizedBox(width: AppSpacing.gutter),
             Expanded(
@@ -339,12 +398,12 @@ class _HistoryCard extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    entry.title,
+                    session.title,
                     style: AppTextStyles.headlineMd.copyWith(fontSize: 18),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${entry.dateLabel} • ${entry.durationMinutes} min',
+                    '${_dateLabel()} • ${_subtitle()}',
                     style: AppTextStyles.bodyMd,
                   ),
                 ],

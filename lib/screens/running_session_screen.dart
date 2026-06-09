@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../data/session_store.dart';
+import '../models/workout.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
@@ -337,11 +339,11 @@ class _LocationService {
 class RunningSessionScreen extends StatefulWidget {
   const RunningSessionScreen({
     super.key,
-    required this.workoutTitle,
+    required this.routine,
     this.targetKm = 5.0,
   });
 
-  final String workoutTitle;
+  final Routine routine;
 
   /// Target distance in kilometres. Defaults to 5.0.
   final double targetKm;
@@ -355,6 +357,7 @@ class _RunningSessionScreenState extends State<RunningSessionScreen> {
   Duration _elapsed = Duration.zero;
   bool _started = false;
   bool _paused = false;
+  late final DateTime _startedAt;
 
   double _distanceKm = 0;
   double _currentPaceKmh = 0;
@@ -366,6 +369,7 @@ class _RunningSessionScreenState extends State<RunningSessionScreen> {
   @override
   void initState() {
     super.initState();
+    _startedAt = DateTime.now();
     _locationService = _LocationService(
       onDistanceUpdated: _onDistanceUpdated,
       onPaceUpdated: _onPaceUpdated,
@@ -477,10 +481,28 @@ class _RunningSessionScreenState extends State<RunningSessionScreen> {
     }
   }
 
-  void _onStop() {
+  Future<void> _onStop() async {
     _ticker?.cancel();
     _ticker = null;
     _locationService.stop();
+
+    final completedAt = DateTime.now();
+    final sessionId = 'run_${completedAt.millisecondsSinceEpoch}';
+    final session = WorkoutSession(
+      id: sessionId,
+      routineId: widget.routine.id,
+      title: widget.routine.name,
+      category: widget.routine.category,
+      durationSeconds: _elapsed.inSeconds,
+      distanceKm: _distanceKm,
+      targetKm: widget.targetKm,
+      startedAt: _startedAt,
+      completedAt: completedAt,
+      exercises: const [],
+    );
+
+    await SessionStore.instance.save(session);
+
     if (mounted) Navigator.of(context).maybePop();
   }
 
@@ -499,7 +521,7 @@ class _RunningSessionScreenState extends State<RunningSessionScreen> {
         surfaceTintColor: AppColors.surface,
         elevation: 0,
         centerTitle: false,
-        title: Text(widget.workoutTitle, style: AppTextStyles.headlineMd),
+        title: Text(widget.routine.name, style: AppTextStyles.headlineMd),
         iconTheme: const IconThemeData(color: AppColors.primary),
       ),
       body: SafeArea(

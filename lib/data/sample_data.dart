@@ -1,104 +1,109 @@
 import '../models/workout.dart';
 
-/// Static sample data used to populate screens. In a real app this would
-/// come from a repository / database.
+/// Static sample data used to populate screens.
+///
+/// These are dev-only fixtures. They are NEVER passed to any repository or
+/// stored in SQLite. Production code stops importing most of these; only
+/// [weeklyVolume] is still referenced by the chart.
 class SampleData {
   SampleData._();
 
+  static final DateTime _base = DateTime(DateTime.now().year, DateTime.now().month);
+
   static final List<Workout> todaysWorkouts = [
-    const Workout(
+    Workout(
       id: 'leg-day',
       title: 'Leg Day',
       category: WorkoutCategory.strength,
       durationMinutes: 45,
-      scheduledDay: 9,
+      scheduledDate: _base.copyWith(day: 9),
     ),
-    const Workout(
+    Workout(
       id: 'evening-run',
       title: 'Evening Run',
       category: WorkoutCategory.cardio,
       durationMinutes: 30,
-      scheduledDay: 9,
+      scheduledDate: _base.copyWith(day: 9),
     ),
   ];
 
-  /// Workouts mapped by day of month for the calendar demo.
+  /// Workouts mapped by day of month for the calendar demo (unused after migration).
   static final Map<int, List<Workout>> workoutsByDay = {
     5: [
-      const Workout(
+      Workout(
         id: 'upper-5',
         title: 'Upper Body',
         category: WorkoutCategory.strength,
         durationMinutes: 50,
-        scheduledDay: 5,
+        scheduledDate: _base.copyWith(day: 5),
       ),
     ],
     6: [
-      const Workout(
+      Workout(
         id: 'squat-6',
         title: 'Squat Session',
         category: WorkoutCategory.strength,
         durationMinutes: 40,
-        scheduledDay: 6,
+        scheduledDate: _base.copyWith(day: 6),
       ),
-      const Workout(
+      Workout(
         id: 'run-6',
         title: 'Morning Run',
         category: WorkoutCategory.cardio,
         durationMinutes: 25,
-        scheduledDay: 6,
+        scheduledDate: _base.copyWith(day: 6),
       ),
     ],
     9: todaysWorkouts,
     11: [
-      const Workout(
+      Workout(
         id: 'run-11',
         title: '5K Run',
         category: WorkoutCategory.cardio,
         durationMinutes: 35,
-        scheduledDay: 11,
+        scheduledDate: _base.copyWith(day: 11),
       ),
     ],
     13: [
-      const Workout(
+      Workout(
         id: 'push-13',
         title: 'Push Day',
         category: WorkoutCategory.strength,
         durationMinutes: 55,
-        scheduledDay: 13,
+        scheduledDate: _base.copyWith(day: 13),
       ),
     ],
     22: [
-      const Workout(
+      Workout(
         id: 'full-22',
         title: 'Full Body',
         category: WorkoutCategory.strength,
         durationMinutes: 60,
-        scheduledDay: 22,
+        scheduledDate: _base.copyWith(day: 22),
       ),
     ],
     25: [
-      const Workout(
+      Workout(
         id: 'back-25',
         title: 'Back & Biceps',
         category: WorkoutCategory.strength,
         durationMinutes: 45,
-        scheduledDay: 25,
+        scheduledDate: _base.copyWith(day: 25),
       ),
     ],
     28: [
-      const Workout(
+      Workout(
         id: 'run-28',
         title: 'Long Run',
         category: WorkoutCategory.cardio,
         durationMinutes: 60,
-        scheduledDay: 28,
+        scheduledDate: _base.copyWith(day: 28),
       ),
     ],
   };
 
   /// Days of the month that have at least one workout, with a list of
-  /// category dot colors for the calendar markers.
+  /// category dot colors for the calendar markers (unused after migration).
   static const Map<int, List<WorkoutCategory>> calendarMarkers = {
     3: [WorkoutCategory.yoga],
     5: [WorkoutCategory.strength],
@@ -112,20 +117,7 @@ class SampleData {
     28: [WorkoutCategory.cardio],
   };
 
-  /// Workout categories shown on the Workouts screen.
-  /// Yoga is intentionally excluded — it is handled elsewhere in the app.
-  static const List<({String name, int routines, WorkoutCategory category})>
-      workoutCategories = [
-    (name: 'Gym', routines: 12, category: WorkoutCategory.strength),
-    (name: 'Running', routines: 5, category: WorkoutCategory.cardio),
-  ];
-
-  static const List<({String title, String subtitle})> recentUpdates = [
-    (title: 'Upper Body Power', subtitle: 'Gym • Modified Today'),
-    (title: 'Morning 5K', subtitle: 'Running • Modified Yesterday'),
-  ];
-
-  /// Bar heights (0 - 1) for the weekly volume chart.
+  /// Bar heights (0–1) for the weekly volume chart.
   static const List<({String label, double height, bool today})> weeklyVolume = [
     (label: 'Mon', height: 0.40, today: false),
     (label: 'Tue', height: 0.60, today: false),
@@ -136,6 +128,7 @@ class SampleData {
     (label: 'Sun', height: 0.20, today: false),
   ];
 
+  /// Historical entries for dev-only display (unused after migration).
   static const List<WorkoutHistoryEntry> history = [
     WorkoutHistoryEntry(
       title: 'Full Body Power',
@@ -175,7 +168,7 @@ class SampleData {
     ),
   ];
 
-  /// Active session demo content.
+  /// Active session demo content (unused after migration).
   static Exercise activeExercise() => Exercise(
         name: 'Barbell Bench Press',
         muscleGroup: 'Chest',

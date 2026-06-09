@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../data/sample_data.dart';
+import '../data/workout_store.dart';
 import '../models/workout.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
@@ -9,8 +9,38 @@ import '../widgets/squish.dart';
 import 'create_workout_screen.dart';
 import 'routine_management_screen.dart';
 
-class WorkoutsScreen extends StatelessWidget {
+class WorkoutsScreen extends StatefulWidget {
   const WorkoutsScreen({super.key});
+
+  @override
+  State<WorkoutsScreen> createState() => _WorkoutsScreenState();
+}
+
+class _WorkoutsScreenState extends State<WorkoutsScreen> {
+  static const _categories = [
+    (
+      category: WorkoutCategory.strength,
+      name: 'Gym',
+    ),
+    (
+      category: WorkoutCategory.cardio,
+      name: 'Running',
+    ),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    WorkoutStore.instance.addListener(_onStoreChanged);
+  }
+
+  @override
+  void dispose() {
+    WorkoutStore.instance.removeListener(_onStoreChanged);
+    super.dispose();
+  }
+
+  void _onStoreChanged() => setState(() {});
 
   @override
   Widget build(BuildContext context) {
@@ -57,66 +87,55 @@ class WorkoutsScreen extends StatelessWidget {
       (AppColors.secondaryContainer, AppColors.onSecondaryContainer),
     ];
     return [
-      for (var i = 0; i < SampleData.workoutCategories.length; i++) ...[
+      for (var i = 0; i < _categories.length; i++) ...[
         _CategoryRow(
-          name: SampleData.workoutCategories[i].name,
-          routines: SampleData.workoutCategories[i].routines,
-          category: SampleData.workoutCategories[i].category,
+          name: _categories[i].name,
+          routines: WorkoutStore.instance
+              .routinesFor(_categories[i].category)
+              .length,
+          category: _categories[i].category,
           iconBg: colors[i].$1,
           iconFg: colors[i].$2,
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => RoutineManagementScreen(
-                category: SampleData.workoutCategories[i].category,
-                title: SampleData.workoutCategories[i].name,
+                category: _categories[i].category,
+                title: _categories[i].name,
               ),
             ),
           ),
         ),
-        if (i < SampleData.workoutCategories.length - 1)
+        if (i < _categories.length - 1)
           const SizedBox(height: AppSpacing.gutter),
       ],
     ];
   }
 
   List<Widget> _recentItems(BuildContext context) {
+    final recent = WorkoutStore.instance.allSortedByRecent.take(5).toList();
+    if (recent.isEmpty) return const [];
     return [
-      for (var i = 0; i < SampleData.recentUpdates.length; i++) ...[
+      for (var i = 0; i < recent.length; i++) ...[
         _RecentRow(
-          title: SampleData.recentUpdates[i].title,
-          subtitle: SampleData.recentUpdates[i].subtitle,
-          onEdit: () => _showEditDialog(context, SampleData.recentUpdates[i].title),
+          title: recent[i].name,
+          subtitle:
+              '${recent[i].category.label} • ${recent[i].exerciseCount} exercise${recent[i].exerciseCount == 1 ? '' : 's'}',
+          onEdit: () async {
+            await Navigator.of(context).push<void>(
+              MaterialPageRoute(
+                builder: (_) => CreateWorkoutScreen(
+                  defaultCategory: recent[i].category,
+                  editRoutine: recent[i],
+                ),
+              ),
+            );
+          },
         ),
-        if (i < SampleData.recentUpdates.length - 1)
-          const SizedBox(height: AppSpacing.sm),
+        if (i < recent.length - 1) const SizedBox(height: AppSpacing.sm),
       ],
     ];
   }
 
-  void _showEditDialog(BuildContext context, String currentTitle) {
-    final controller = TextEditingController(text: currentTitle);
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Edit Workout'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Workout name'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    ).then((_) => controller.dispose());
-  }
 }
 
 class _PageHeader extends StatelessWidget {

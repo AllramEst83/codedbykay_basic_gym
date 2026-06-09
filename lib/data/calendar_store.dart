@@ -1,51 +1,89 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/workout.dart';
-import 'sample_data.dart';
+import 'repositories/schedule_repository.dart';
 
-/// Mutable in-memory store for workouts scheduled to specific days of the month.
+/// In-memory cache for scheduled [Workout]s keyed by local day, backed by
+/// [ScheduleRepository].
 ///
-/// Seeded from [SampleData.workoutsByDay] so the demo calendar has pre-populated
-/// data. Screens listen to this [ChangeNotifier] and rebuild when the schedule
-/// changes.
+/// Screens listen to this [ChangeNotifier] and rebuild when the schedule changes.
+/// All mutations write through to the repository so data survives restarts.
 class CalendarStore extends ChangeNotifier {
-  CalendarStore._()
-      : _schedule = {
-          for (final e in SampleData.workoutsByDay.entries)
-            e.key: List<Workout>.of(e.value),
-        };
+  CalendarStore._();
 
   static final CalendarStore instance = CalendarStore._();
 
-  final Map<int, List<Workout>> _schedule;
+  late ScheduleRepository _repo;
 
-  /// Returns the workouts scheduled for [day] of the current month.
-  List<Workout> workoutsForDay(int day) =>
-      List<Workout>.unmodifiable(_schedule[day] ?? const []);
+  /// Cache keyed by the start-of-day [DateTime] (time zeroed).
+  final Map<DateTime, List<Workout>> _schedule = {};
 
-  /// Returns [true] if [day] has at least one scheduled workout.
-  bool hasWorkoutsOnDay(int day) => _schedule[day]?.isNotEmpty ?? false;
+  /// Normalises any [DateTime] to midnight of that day.
+  static DateTime _dayKey(DateTime date) =>
+      DateTime(date.year, date.month, date.day);
 
-  /// Derived list of category markers for [day] (used for calendar dot indicators).
-  List<WorkoutCategory> markersForDay(int day) =>
-      workoutsForDay(day).map((w) => w.category).toSet().toList();
+  /// Loads the current month (+/- 1 month buffer) from the repository.
+  /// Call once in [main] after the database is open.
+  Future<void> hydrate(ScheduleRepository repo) async {
+    _repo = repo;
+    final now = DateTime.now();
+    await _loadRange(
+      DateTime(now.year, now.month - 1),
+      DateTime(now.year, now.month + 2),
+    );
+  }
 
-  /// Adds [workout] to [day] and notifies listeners.
-  void scheduleWorkout(int day, Workout workout) {
+  Future<void> _loadRange(DateTime from, DateTime to) async {
+    final workouts = await _repo.getForDateRange(from, to);
+    _schedule.clear();
+    for (final w in workouts) {
+      final key = _dayKey(w.scheduledDate);
+      _schedule.putIfAbsent(key, () => []).add(w);
+    }
+    notifyListeners();
+  }
+
+  // ── Read helpers ────────────────────────────────────────────────────────────
+
+  /// Returns the workouts scheduled for the given [date].
+  List<Workout> workoutsForDay(DateTime date) =>
+      List.unmodifiable(_schedule[_dayKey(date)] ?? const []);
+
+  /// Convenience accessor for calendar UI still passing [int] day-of-month
+  /// within the currently displayed month.
+  List<Workout> workoutsForDayOfMonth(int day, DateTime displayMonth) =>
+      workoutsForDay(DateTime(displayMonth.year, displayMonth.month, day));
+
+  /// [true] if [date] has at least one scheduled workout.
+  bool hasWorkoutsOnDay(DateTime date) =>
+      _schedule[_dayKey(date)]?.isNotEmpty ?? false;
+
+  /// Derived category markers for [date] (used for calendar dot indicators).
+  List<WorkoutCategory> markersForDay(DateTime date) =>
+      workoutsForDay(date).map((w) => w.category).toSet().toList();
+
+  // ── Write helpers ───────────────────────────────────────────────────────────
+
+  /// Persists [workout] for [date] and notifies listeners.
+  Future<void> scheduleWorkout(DateTime date, Workout workout) async {
+    await _repo.schedule(workout);
+    final key = _dayKey(date);
     _schedule.update(
-      day,
+      key,
       (existing) => [...existing, workout],
       ifAbsent: () => [workout],
     );
     notifyListeners();
   }
 
-  /// Removes the workout with [workoutId] from [day] and notifies listeners.
-  void removeWorkout(int day, String workoutId) {
-    final list = _schedule[day];
+  /// Removes the workout with [workoutId] from [date] and notifies listeners.
+  Future<void> removeWorkout(DateTime date, String workoutId) async {
+    await _repo.unschedule(workoutId);
+    final key = _dayKey(date);
+    final list = _schedule[key];
     if (list == null) return;
     list.removeWhere((w) => w.id == workoutId);
-    if (list.isEmpty) _schedule.remove(day);
+    if (list.isEmpty) _schedule.remove(key);
     notifyListeners();
   }
 }

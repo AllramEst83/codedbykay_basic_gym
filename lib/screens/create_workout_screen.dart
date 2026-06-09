@@ -32,9 +32,12 @@ class CreateWorkoutScreen extends StatefulWidget {
 
 class _CreateWorkoutScreenState extends State<CreateWorkoutScreen> {
   final _nameController = TextEditingController();
+  final _distanceController = TextEditingController();
   late WorkoutCategory _category;
   final List<_ExerciseDraft> _exercises = [];
   final _formKey = GlobalKey<FormState>();
+
+  bool get _isCardio => _category == WorkoutCategory.cardio;
 
   @override
   void initState() {
@@ -43,6 +46,9 @@ class _CreateWorkoutScreenState extends State<CreateWorkoutScreen> {
     if (edit != null) {
       _nameController.text = edit.name;
       _category = edit.category;
+      if (edit.targetKm != null) {
+        _distanceController.text = edit.targetKm!.toString();
+      }
       for (final e in edit.exercises) {
         final draft = _ExerciseDraft();
         draft.nameController.text = e.name;
@@ -58,6 +64,7 @@ class _CreateWorkoutScreenState extends State<CreateWorkoutScreen> {
   @override
   void dispose() {
     _nameController.dispose();
+    _distanceController.dispose();
     for (final e in _exercises) {
       e.dispose();
     }
@@ -77,22 +84,30 @@ class _CreateWorkoutScreenState extends State<CreateWorkoutScreen> {
 
   void _save() {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    if (_exercises.isEmpty) {
+
+    if (!_isCardio && _exercises.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Add at least one exercise.')),
       );
       return;
     }
 
-    final exercises = _exercises
-        .map(
-          (e) => ExerciseTemplate(
-            name: e.nameController.text.trim(),
-            sets: int.tryParse(e.setsController.text) ?? 1,
-            repsLabel: e.repsController.text.trim(),
-          ),
-        )
-        .toList();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final exercises = _isCardio
+        ? <ExerciseTemplate>[]
+        : [
+            for (var i = 0; i < _exercises.length; i++)
+              ExerciseTemplate(
+                id: 'ex_${now}_$i',
+                name: _exercises[i].nameController.text.trim(),
+                sets: int.tryParse(_exercises[i].setsController.text) ?? 1,
+                repsLabel: _exercises[i].repsController.text.trim(),
+              ),
+          ];
+
+    final targetKm = _isCardio
+        ? double.tryParse(_distanceController.text.trim())
+        : null;
 
     final edit = widget.editRoutine;
     if (edit != null) {
@@ -102,6 +117,7 @@ class _CreateWorkoutScreenState extends State<CreateWorkoutScreen> {
           name: _nameController.text.trim(),
           category: _category,
           exercises: exercises,
+          targetKm: targetKm,
         ),
       );
     } else {
@@ -112,6 +128,7 @@ class _CreateWorkoutScreenState extends State<CreateWorkoutScreen> {
           name: _nameController.text.trim(),
           category: _category,
           exercises: exercises,
+          targetKm: targetKm,
         ),
       );
     }
@@ -179,20 +196,26 @@ class _CreateWorkoutScreenState extends State<CreateWorkoutScreen> {
                 onChanged: (c) => setState(() => _category = c),
               ),
               const SizedBox(height: AppSpacing.lg),
-              _ExercisesHeader(onAdd: _addExercise),
-              const SizedBox(height: AppSpacing.base),
-              if (_exercises.isEmpty)
-                _NoExercisesPlaceholder(onAdd: _addExercise),
-              for (var i = 0; i < _exercises.length; i++) ...[
-                _ExerciseRow(
-                  index: i,
-                  draft: _exercises[i],
-                  onRemove: () => _removeExercise(i),
-                ),
-                const SizedBox(height: AppSpacing.sm),
+              if (_isCardio) ...[
+                _SectionLabel('Running Details'),
+                const SizedBox(height: AppSpacing.base),
+                _DistanceField(controller: _distanceController),
+              ] else ...[
+                _ExercisesHeader(onAdd: _addExercise),
+                const SizedBox(height: AppSpacing.base),
+                if (_exercises.isEmpty)
+                  _NoExercisesPlaceholder(onAdd: _addExercise),
+                for (var i = 0; i < _exercises.length; i++) ...[
+                  _ExerciseRow(
+                    index: i,
+                    draft: _exercises[i],
+                    onRemove: () => _removeExercise(i),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
+                if (_exercises.isNotEmpty)
+                  _AddExerciseButton(onPressed: _addExercise),
               ],
-              if (_exercises.isNotEmpty)
-                _AddExerciseButton(onPressed: _addExercise),
             ],
           ),
         ),
@@ -271,6 +294,46 @@ class _WorkoutNameField extends StatelessWidget {
       ),
       validator: (v) =>
           (v == null || v.trim().isEmpty) ? 'Enter a workout name' : null,
+    );
+  }
+}
+
+class _DistanceField extends StatelessWidget {
+  const _DistanceField({required this.controller});
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: InputDecoration(
+        labelText: 'Target distance (km)',
+        hintText: 'e.g. 5.0',
+        suffixText: 'km',
+        filled: true,
+        fillColor: AppColors.surfaceContainerLowest,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          borderSide: const BorderSide(color: AppColors.outlineVariant),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          borderSide: const BorderSide(color: AppColors.primary, width: 2),
+        ),
+      ),
+      validator: (v) {
+        if (v == null || v.trim().isEmpty) return 'Enter a target distance';
+        if (double.tryParse(v.trim()) == null) return 'Enter a valid number';
+        if ((double.tryParse(v.trim()) ?? 0) <= 0) {
+          return 'Distance must be greater than 0';
+        }
+        return null;
+      },
     );
   }
 }

@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../data/sample_data.dart';
+import '../data/session_store.dart';
 import '../models/workout.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
@@ -12,27 +12,42 @@ import '../widgets/primary_pill_button.dart';
 import '../widgets/squish.dart';
 
 class ActiveSessionScreen extends StatefulWidget {
-  const ActiveSessionScreen({super.key, required this.workoutTitle});
+  const ActiveSessionScreen({
+    super.key,
+    required this.routine,
+  });
 
-  final String workoutTitle;
+  final Routine routine;
 
   @override
   State<ActiveSessionScreen> createState() => _ActiveSessionScreenState();
 }
 
 class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
-  late final Exercise _exercise;
+  late final List<Exercise> _exercises;
+  late int _currentExerciseIndex;
   Timer? _ticker;
-  Duration _elapsed = const Duration(minutes: 45, seconds: 22);
+  Duration _elapsed = Duration.zero;
   bool _paused = false;
-
-  final _currentExerciseIndex = 3;
-  final _totalExercises = 6;
+  late final DateTime _startedAt;
 
   @override
   void initState() {
     super.initState();
-    _exercise = SampleData.activeExercise();
+    _startedAt = DateTime.now();
+    _exercises = widget.routine.exercises.map((t) {
+      return Exercise(
+        name: t.name,
+        muscleGroup: widget.routine.category.label,
+        targetSets: t.sets,
+        targetRepsLabel: '${t.sets} Sets x ${t.repsLabel} Reps',
+        sets: List.generate(
+          t.sets,
+          (_) => WorkoutSet(weightKg: null, reps: null),
+        ),
+      );
+    }).toList();
+    _currentExerciseIndex = 0;
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_paused) return;
       setState(() => _elapsed += const Duration(seconds: 1));
@@ -45,6 +60,8 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
     super.dispose();
   }
 
+  Exercise get _currentExercise => _exercises[_currentExerciseIndex];
+
   String _formatDuration(Duration d) {
     String two(int n) => n.toString().padLeft(2, '0');
     final h = two(d.inHours);
@@ -53,11 +70,59 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
     return '$h:$m:$s';
   }
 
-  void _completeActive() {
+  void _completeActiveSet() {
     setState(() {
-      final idx = _exercise.sets.indexWhere((s) => !s.completed);
-      if (idx >= 0) _exercise.sets[idx].completed = true;
+      final idx = _currentExercise.sets.indexWhere((s) => !s.completed);
+      if (idx >= 0) _currentExercise.sets[idx].completed = true;
     });
+  }
+
+  Future<void> _finishWorkout() async {
+    _ticker?.cancel();
+    final completedAt = DateTime.now();
+    final sessionId =
+        'session_${completedAt.millisecondsSinceEpoch}';
+
+    final sessionExercises = <SessionExercise>[];
+    for (var ei = 0; ei < _exercises.length; ei++) {
+      final ex = _exercises[ei];
+      final exId = '${sessionId}_ex$ei';
+      final sets = <SessionSet>[];
+      for (var si = 0; si < ex.sets.length; si++) {
+        final ws = ex.sets[si];
+        sets.add(SessionSet(
+          id: '${exId}_set$si',
+          exerciseId: exId,
+          orderIndex: si,
+          weightKg: ws.weightKg,
+          reps: ws.reps,
+          completed: ws.completed,
+        ));
+      }
+      sessionExercises.add(SessionExercise(
+        id: exId,
+        sessionId: sessionId,
+        name: ex.name,
+        muscleGroup: ex.muscleGroup,
+        orderIndex: ei,
+        sets: sets,
+      ));
+    }
+
+    final session = WorkoutSession(
+      id: sessionId,
+      routineId: widget.routine.id,
+      title: widget.routine.name,
+      category: widget.routine.category,
+      durationSeconds: _elapsed.inSeconds,
+      startedAt: _startedAt,
+      completedAt: completedAt,
+      exercises: sessionExercises,
+    );
+
+    await SessionStore.instance.save(session);
+
+    if (mounted) Navigator.of(context).maybePop();
   }
 
   @override
@@ -69,7 +134,7 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
           _SessionTopBar(
             paused: _paused,
             onPauseToggle: () => setState(() => _paused = !_paused),
-            title: widget.workoutTitle,
+            title: widget.routine.name,
             elapsed: _formatDuration(_elapsed),
             onSettings: () {},
             onClose: () => Navigator.of(context).maybePop(),
@@ -84,11 +149,11 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
               ),
               children: [
                 _ExerciseHeader(
-                  muscleGroup: _exercise.muscleGroup,
-                  index: _currentExerciseIndex,
-                  total: _totalExercises,
-                  name: _exercise.name,
-                  target: _exercise.targetRepsLabel,
+                  muscleGroup: _currentExercise.muscleGroup,
+                  index: _currentExerciseIndex + 1,
+                  total: _exercises.length,
+                  name: _currentExercise.name,
+                  target: _currentExercise.targetRepsLabel,
                 ),
                 const SizedBox(height: AppSpacing.md),
                 ..._buildSets(),
@@ -100,7 +165,7 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
           ),
           _BottomActions(
             onAddNote: () {},
-            onFinish: () => Navigator.of(context).maybePop(),
+            onFinish: _finishWorkout,
           ),
         ],
       ),
@@ -108,21 +173,24 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
   }
 
   List<Widget> _buildSets() {
-    final activeIdx = _exercise.sets.indexWhere((s) => !s.completed);
+    final activeIdx =
+        _currentExercise.sets.indexWhere((s) => !s.completed);
     return [
-      for (var i = 0; i < _exercise.sets.length; i++) ...[
+      for (var i = 0; i < _currentExercise.sets.length; i++) ...[
         _SetRow(
           number: i + 1,
-          set: _exercise.sets[i],
-          state: _exercise.sets[i].completed
+          set: _currentExercise.sets[i],
+          state: _currentExercise.sets[i].completed
               ? _SetState.completed
               : (i == activeIdx ? _SetState.active : _SetState.upcoming),
-          onComplete: _completeActive,
+          onComplete: _completeActiveSet,
           onWeightChanged: (v) =>
-              setState(() => _exercise.sets[i].weightKg = v),
-          onRepsChanged: (v) => setState(() => _exercise.sets[i].reps = v),
+              setState(() => _currentExercise.sets[i].weightKg = v),
+          onRepsChanged: (v) =>
+              setState(() => _currentExercise.sets[i].reps = v),
         ),
-        if (i < _exercise.sets.length - 1) const SizedBox(height: AppSpacing.sm),
+        if (i < _currentExercise.sets.length - 1)
+          const SizedBox(height: AppSpacing.sm),
       ],
     ];
   }
@@ -195,10 +263,7 @@ class _SessionTopBar extends StatelessWidget {
                       color: AppColors.onSurfaceVariant,
                     ),
                     const SizedBox(width: 4),
-                    Text(
-                      elapsed,
-                      style: AppTextStyles.bodyMd,
-                    ),
+                    Text(elapsed, style: AppTextStyles.bodyMd),
                   ],
                 ),
               ],
@@ -246,10 +311,7 @@ class _ExerciseHeader extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             CategoryPill(label: muscleGroup),
-            Text(
-              'Exercise $index of $total',
-              style: AppTextStyles.bodyMd,
-            ),
+            Text('Exercise $index of $total', style: AppTextStyles.bodyMd),
           ],
         ),
         const SizedBox(height: AppSpacing.sm),
@@ -260,10 +322,7 @@ class _ExerciseHeader extends StatelessWidget {
           ),
         ),
         const SizedBox(height: AppSpacing.xs),
-        Text(
-          'Target: $target',
-          style: AppTextStyles.bodyLg,
-        ),
+        Text('Target: $target', style: AppTextStyles.bodyLg),
       ],
     );
   }
@@ -316,7 +375,6 @@ class _SetRow extends StatelessWidget {
                 BoxShadow(
                   color: AppColors.primary.withValues(alpha: 0.10),
                   blurRadius: 18,
-                  offset: const Offset(0, 0),
                 ),
               ]
             : null,
@@ -335,8 +393,7 @@ class _SetRow extends StatelessWidget {
                       label: 'Weight (kg)',
                       value: set.weightKg?.toString(),
                       editable: isActive,
-                      onChanged: (s) =>
-                          onWeightChanged(double.tryParse(s)),
+                      onChanged: (s) => onWeightChanged(double.tryParse(s)),
                     ),
                   ),
                   const SizedBox(width: AppSpacing.sm),
@@ -399,11 +456,8 @@ class _LeadingBadge extends StatelessWidget {
       ),
       alignment: Alignment.center,
       child: completed
-          ? const Icon(
-              Icons.check_rounded,
-              color: AppColors.onPrimary,
-              size: 24,
-            )
+          ? const Icon(Icons.check_rounded,
+              color: AppColors.onPrimary, size: 24)
           : Text(
               '$number',
               style: AppTextStyles.statNumber.copyWith(
@@ -450,7 +504,8 @@ class _SetFieldState extends State<_SetField> {
   @override
   void didUpdateWidget(covariant _SetField old) {
     super.didUpdateWidget(old);
-    if (old.value != widget.value && (widget.value ?? '') != _controller.text) {
+    if (old.value != widget.value &&
+        (widget.value ?? '') != _controller.text) {
       _controller.text = widget.value ?? '';
     }
   }
@@ -465,7 +520,6 @@ class _SetFieldState extends State<_SetField> {
   @override
   Widget build(BuildContext context) {
     final showValue = widget.value ?? '-';
-
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       padding: const EdgeInsets.symmetric(
@@ -561,7 +615,8 @@ class _RestPreview extends StatelessWidget {
                   Text(
                     '$seconds seconds',
                     style: AppTextStyles.bodyMd.copyWith(
-                      color: AppColors.onTertiaryContainer.withValues(alpha: 0.85),
+                      color:
+                          AppColors.onTertiaryContainer.withValues(alpha: 0.85),
                     ),
                   ),
                 ],
@@ -600,7 +655,8 @@ class _BottomActions extends StatelessWidget {
       ),
       decoration: const BoxDecoration(
         color: AppColors.surface,
-        border: Border(top: BorderSide(color: AppColors.surfaceContainerHighest)),
+        border:
+            Border(top: BorderSide(color: AppColors.surfaceContainerHighest)),
       ),
       child: Row(
         children: [

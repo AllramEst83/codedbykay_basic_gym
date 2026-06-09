@@ -62,13 +62,18 @@ class _CalendarScreenState extends State<CalendarScreen>
   }
 
   List<Workout> get _workoutsForSelected =>
-      CalendarStore.instance.workoutsForDay(_selectedDate.day);
+      CalendarStore.instance.workoutsForDay(_selectedDate);
 
-  /// Builds a marker map for every day 1–31 from the live [CalendarStore].
+  /// Builds a marker map for every day 1–31 of the displayed month.
   Map<int, List<WorkoutCategory>> get _markerData => {
-        for (int d = 1; d <= 31; d++)
-          if (CalendarStore.instance.hasWorkoutsOnDay(d))
-            d: CalendarStore.instance.markersForDay(d),
+        for (int d = 1; d <= 31; d++) ...() {
+          final date =
+              DateTime(_displayMonth.year, _displayMonth.month, d);
+          if (CalendarStore.instance.hasWorkoutsOnDay(date)) {
+            return {d: CalendarStore.instance.markersForDay(date)};
+          }
+          return {};
+        }(),
       };
 
   void _showAddWorkoutSheet() {
@@ -86,7 +91,7 @@ class _CalendarScreenState extends State<CalendarScreen>
       ),
       builder: (_) => _AddWorkoutSheet(
         routines: routines,
-        day: _selectedDate.day,
+        selectedDate: _selectedDate,
       ),
     );
   }
@@ -629,8 +634,8 @@ class _SelectedDayWorkouts extends StatelessWidget {
           for (final w in workouts) ...[
             _WorkoutCard(
               workout: w,
-              onRemove: () => CalendarStore.instance
-                  .removeWorkout(date.day, w.id),
+              onRemove: () =>
+                  CalendarStore.instance.removeWorkout(date, w.id),
             ),
             const SizedBox(height: AppSpacing.gutter),
           ],
@@ -820,20 +825,40 @@ class _WorkoutCard extends StatelessWidget {
                 foreground: p.buttonFg,
                 height: 48,
                 onPressed: () {
+                  final routine = workout.routineId != null
+                      ? WorkoutStore.instance.allSortedByRecent
+                          .where((r) => r.id == workout.routineId)
+                          .firstOrNull
+                      : null;
+
                   if (workout.category == WorkoutCategory.cardio) {
+                    // Build a stub Routine if none is found (orphaned entry)
+                    final r = routine ??
+                        Routine(
+                          id: workout.id,
+                          name: workout.title,
+                          category: workout.category,
+                          exercises: const [],
+                        );
                     Navigator.of(context).push(
                       MaterialPageRoute<void>(
                         builder: (_) => RunningSessionScreen(
-                          workoutTitle: workout.title,
+                          routine: r,
+                          targetKm: r.targetKm ?? 5.0,
                         ),
                       ),
                     );
                   } else {
+                    final r = routine ??
+                        Routine(
+                          id: workout.id,
+                          name: workout.title,
+                          category: workout.category,
+                          exercises: const [],
+                        );
                     Navigator.of(context).push(
                       MaterialPageRoute<void>(
-                        builder: (_) => ActiveSessionScreen(
-                          workoutTitle: workout.title,
-                        ),
+                        builder: (_) => ActiveSessionScreen(routine: r),
                       ),
                     );
                   }
@@ -852,10 +877,13 @@ class _WorkoutCard extends StatelessWidget {
 // ────────────────────────────────────────────────────────────────────────
 
 class _AddWorkoutSheet extends StatelessWidget {
-  const _AddWorkoutSheet({required this.routines, required this.day});
+  const _AddWorkoutSheet({
+    required this.routines,
+    required this.selectedDate,
+  });
 
   final List<Routine> routines;
-  final int day;
+  final DateTime selectedDate;
 
   @override
   Widget build(BuildContext context) {
@@ -904,16 +932,19 @@ class _AddWorkoutSheet extends StatelessWidget {
                   final r = routines[i];
                   return Squish(
                     onTap: () {
+                      final now = DateTime.now();
                       final workout = Workout(
-                        id: '${r.id}_d${day}_${DateTime.now().millisecondsSinceEpoch}',
+                        id: '${r.id}_${now.millisecondsSinceEpoch}',
+                        routineId: r.id,
                         title: r.name,
                         category: r.category,
                         durationMinutes:
                             (r.exercises.fold(0, (acc, e) => acc + e.sets * 5))
                                 .clamp(15, 120),
-                        scheduledDay: day,
+                        scheduledDate: selectedDate,
                       );
-                      CalendarStore.instance.scheduleWorkout(day, workout);
+                      CalendarStore.instance.scheduleWorkout(
+                          selectedDate, workout);
                       Navigator.of(context).pop();
                     },
                     child: Container(
