@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Progress - FlexFlow</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400&amp;family=Plus+Jakarta+Sans:wght@700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-surface-variant": "#3e4944",
+                        "on-primary": "#ffffff",
+                        "on-tertiary-container": "#965959",
+                        "on-surface": "#161d1f",
+                        "on-primary-fixed": "#002117",
+                        "on-tertiary": "#ffffff",
+                        "secondary-fixed-dim": "#c5c5d8",
+                        "outline": "#6e7a74",
+                        "on-tertiary-fixed": "#370d10",
+                        "primary-fixed-dim": "#73d9b5",
+                        "error": "#ba1a1a",
+                        "tertiary-fixed-dim": "#ffb3b3",
+                        "background": "#f4fafd",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-bright": "#f4fafd",
+                        "primary": "#006c52",
+                        "on-background": "#161d1f",
+                        "tertiary-fixed": "#ffdad9",
+                        "error-container": "#ffdad6",
+                        "tertiary-container": "#ffe5e4",
+                        "surface": "#f4fafd",
+                        "primary-fixed": "#8ff6d0",
+                        "on-primary-fixed-variant": "#00513d",
+                        "on-secondary-container": "#626374",
+                        "surface-container-low": "#eef5f7",
+                        "surface-container-high": "#e2e9ec",
+                        "inverse-on-surface": "#ebf2f4",
+                        "tertiary": "#894e4f",
+                        "primary-container": "#98ffd9",
+                        "secondary": "#5c5d6e",
+                        "inverse-surface": "#2b3234",
+                        "surface-variant": "#dde4e6",
+                        "on-primary-container": "#00785c",
+                        "on-secondary-fixed": "#191b29",
+                        "outline-variant": "#bdc9c2",
+                        "secondary-container": "#e1e1f5",
+                        "on-error": "#ffffff",
+                        "surface-container": "#e8eff1",
+                        "secondary-fixed": "#e1e1f5",
+                        "surface-container-highest": "#dde4e6",
+                        "on-secondary-fixed-variant": "#444655",
+                        "inverse-primary": "#73d9b5",
+                        "surface-dim": "#d4dbdd",
+                        "on-secondary": "#ffffff",
+                        "on-tertiary-fixed-variant": "#6d3738",
+                        "on-error-container": "#93000a",
+                        "surface-tint": "#006c52"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "1rem",
+                        "lg": "2rem",
+                        "xl": "3rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "sm": "12px",
+                        "base": "8px",
+                        "xl": "64px",
+                        "lg": "40px",
+                        "gutter": "16px",
+                        "container-margin": "20px",
+                        "md": "24px",
+                        "xs": "4px"
+                    },
+                    "fontFamily": {
+                        "body-md": ["Be Vietnam Pro"],
+                        "body-lg": ["Be Vietnam Pro"],
+                        "stat-number": ["Plus Jakarta Sans"],
+                        "headline-md": ["Plus Jakarta Sans"],
+                        "label-bold": ["Plus Jakarta Sans"],
+                        "display-lg": ["Plus Jakarta Sans"],
+                        "display-lg-mobile": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "stat-number": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "800" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "label-bold": ["14px", { "lineHeight": "20px", "fontWeight": "700" }],
+                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "800" }],
+                        "display-lg-mobile": ["36px", { "lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "800" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: theme('colors.background');
+            color: theme('colors.on-background');
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="antialiased min-h-screen flex flex-col pt-[72px] pb-[96px] md:pb-0 md:pt-[72px]">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-xl flex justify-between items-center px-container-margin py-base bg-surface">
+<div class="flex items-center gap-sm">
+<div class="w-10 h-10 rounded-full bg-surface-container-high overflow-hidden hover:opacity-80 active:scale-95 transition-transform duration-200 cursor-pointer">
+<img alt="User profile photo" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBG7_vcIUrJeoD3LS_8K3JICuBihkdbIwxtIcnatMxZSwuvbSxk6heYImcgofD2CmIOVU05uqgJarLI5m4UzHAJYzQ9Vdc-t_vjlstqx8jbEIGgGTRt0QrP2bDTPNdE9I8hvERnIM2_so3WaUE2jwqQtKve147B4M1Bg5_qugsgELhC1Lu6O8-zK9eKvwjf_EHebu_DdYUFW6Ap-1EoszUbtOcX3Z-0RFe6v9mH-5oKGNElX8vIF_ALpsr8eTcs3a_mt_YmvuqDiRU"/>
+</div>
+<h1 class="font-headline-md text-headline-md-mobile md:text-headline-md text-primary">FlexFlow</h1>
+</div>
+<button class="w-12 h-12 flex items-center justify-center rounded-full hover:bg-surface-variant/50 active:scale-95 transition-transform duration-200 text-primary">
+<span class="material-symbols-outlined text-2xl">notifications</span>
+</button>
+</header>
+<main class="flex-grow px-container-margin md:max-w-[1200px] md:mx-auto w-full flex flex-col gap-lg">
+<!-- Header & Summary Metrics -->
+<section class="mt-md">
+<h2 class="font-display-lg-mobile text-display-lg-mobile md:font-display-lg md:text-display-lg text-on-surface mb-md">This Week</h2>
+<div class="grid grid-cols-2 gap-sm">
+<div class="bg-surface-container-lowest p-md rounded-lg flex flex-col justify-between h-[140px]">
+<div class="flex items-center gap-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-sm">timer</span>
+<span class="font-label-bold text-label-bold">Duration</span>
+</div>
+<div>
+<span class="font-stat-number text-stat-number text-on-surface">184</span>
+<span class="font-body-md text-body-md text-on-surface-variant ml-xs">min</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-md rounded-lg flex flex-col justify-between h-[140px]">
+<div class="flex items-center gap-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-sm">local_fire_department</span>
+<span class="font-label-bold text-label-bold">Calories</span>
+</div>
+<div>
+<span class="font-stat-number text-stat-number text-on-surface">1,240</span>
+<span class="font-body-md text-body-md text-on-surface-variant ml-xs">kcal</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Chart Section (Simplified CSS representation) -->
+<section class="bg-surface-container-lowest p-md rounded-lg">
+<div class="flex justify-between items-end mb-sm">
+<h3 class="font-headline-md text-headline-md-mobile text-on-surface">Volume</h3>
+<span class="font-label-bold text-label-bold text-primary bg-primary-container px-sm py-xs rounded-full">Last 7 Days</span>
+</div>
+<!-- CSS Bar Chart Representation -->
+<div class="h-40 flex items-end justify-between gap-xs pt-md mt-sm border-t border-surface-container-highest">
+<div class="w-full bg-secondary-container rounded-t-full h-[40%] hover:bg-primary-container transition-colors relative group">
+<span class="absolute -top-8 left-1/2 -translate-x-1/2 bg-inverse-surface text-inverse-on-surface text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">Mon</span>
+</div>
+<div class="w-full bg-secondary-container rounded-t-full h-[60%] hover:bg-primary-container transition-colors relative group">
+<span class="absolute -top-8 left-1/2 -translate-x-1/2 bg-inverse-surface text-inverse-on-surface text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">Tue</span>
+</div>
+<div class="w-full bg-primary rounded-t-full h-[85%] relative group">
+<span class="absolute -top-8 left-1/2 -translate-x-1/2 bg-inverse-surface text-inverse-on-surface text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">Wed</span>
+</div>
+<div class="w-full bg-secondary-container rounded-t-full h-[30%] hover:bg-primary-container transition-colors relative group">
+<span class="absolute -top-8 left-1/2 -translate-x-1/2 bg-inverse-surface text-inverse-on-surface text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">Thu</span>
+</div>
+<div class="w-full bg-secondary-container rounded-t-full h-[70%] hover:bg-primary-container transition-colors relative group">
+<span class="absolute -top-8 left-1/2 -translate-x-1/2 bg-inverse-surface text-inverse-on-surface text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">Fri</span>
+</div>
+<div class="w-full bg-secondary-container rounded-t-full h-[50%] hover:bg-primary-container transition-colors relative group">
+<span class="absolute -top-8 left-1/2 -translate-x-1/2 bg-inverse-surface text-inverse-on-surface text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">Sat</span>
+</div>
+<div class="w-full bg-secondary-container rounded-t-full h-[20%] hover:bg-primary-container transition-colors relative group">
+<span class="absolute -top-8 left-1/2 -translate-x-1/2 bg-inverse-surface text-inverse-on-surface text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">Sun</span>
+</div>
+</div>
+</section>
+<!-- History List -->
+<section class="flex flex-col gap-sm">
+<h3 class="font-headline-md text-headline-md-mobile text-on-surface mb-xs">Workout History</h3>
+<!-- Card 1 (With Image) -->
+<div class="bg-surface-container-lowest p-sm rounded-lg flex items-center gap-md hover:bg-surface-container-low transition-colors cursor-pointer active:scale-95 duration-200">
+<div class="w-20 h-20 rounded-lg overflow-hidden shrink-0 bg-surface-container-high relative">
+<img alt="Workout thumbnail" class="w-full h-full object-cover" data-alt="A dynamic action shot of a person lifting a heavy barbell in a brightly lit, modern gym. The setting is clean with white walls and mint green accents. The lighting is bright and energetic, reflecting a high-energy fitness environment. The style is crisp, high-contrast, and focused on physical exertion." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBmASwO61yUd4-iPWn6LcOL11_LrJVWeM36DJXQ-971xd7Ftk1VzB84cW0oP5tCe9EwO92ZsncqZV9w41_cQK-bsqegHcI51Rg2u2xYd_P4mxk9bO8kd53wGhhvBKirjNbar-za6_gH3epX3L6aooCtDetxDotJidVQfBPPuYQIJD3WSc5eHohTN6Wo3Zvz9k-jttIrGHl_mRRoYWR9Xmby5xS1tJuj5hBxMxHeOSu9MF9njC5k_MAt7SqUyv5p91VR5Ve2Ozdb-Dk"/>
+</div>
+<div class="flex-grow">
+<h4 class="font-headline-md text-headline-md-mobile text-on-surface">Full Body Power</h4>
+<p class="font-body-md text-body-md text-on-surface-variant">Today • 45 min</p>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant shrink-0 px-sm">chevron_right</span>
+</div>
+<!-- Card 2 (With Image) -->
+<div class="bg-surface-container-lowest p-sm rounded-lg flex items-center gap-md hover:bg-surface-container-low transition-colors cursor-pointer active:scale-95 duration-200">
+<div class="w-20 h-20 rounded-lg overflow-hidden shrink-0 bg-surface-container-high relative">
+<img alt="Workout thumbnail" class="w-full h-full object-cover" data-alt="A calm, well-lit yoga studio setting. A person is performing a stretching pose on a mat. The room features light wood floors and soft, natural light streaming through a large window. The color palette is composed of soft pastels, predominantly sky blue and lavender. The mood is serene, focused, and approachable." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDU59k0Lqsd40VznqSdIwZ54QulRPrDFJj6drxv3qqeumbGhoSVGkOgfYYDhOtLjvzEC3y_gGPoc_gpkPZetY92SqFzUc0wzspx74lccupn7iD-isLM0nwDyI6RejBLxk9hPYicqSt7PrUvZKKls4d3QnSj5wbFFj4-OoXxD3Psc3NS3O4-OBm86TXOIU39leXKttOX0OeQiT2wtDur2NfgeSAQ7yT3bp6vBnm4eCBjPTu-2567NZYGQCmJ_qW3GXOHoHGSR87gte8"/>
+</div>
+<div class="flex-grow">
+<h4 class="font-headline-md text-headline-md-mobile text-on-surface">Core &amp; Flow</h4>
+<p class="font-body-md text-body-md text-on-surface-variant">Yesterday • 30 min</p>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant shrink-0 px-sm">chevron_right</span>
+</div>
+<!-- Card 3 (Missing Image Placeholder) -->
+<div class="bg-surface-container-lowest p-sm rounded-lg flex items-center gap-md hover:bg-surface-container-low transition-colors cursor-pointer active:scale-95 duration-200">
+<div class="w-20 h-20 rounded-lg overflow-hidden shrink-0 bg-secondary-container flex items-center justify-center">
+<span class="material-symbols-outlined text-on-secondary-container" style="font-variation-settings: 'FILL' 1; font-size: 32px;">directions_run</span>
+</div>
+<div class="flex-grow">
+<h4 class="font-headline-md text-headline-md-mobile text-on-surface">Outdoor Run</h4>
+<p class="font-body-md text-body-md text-on-surface-variant">Mon, Oct 12 • 60 min</p>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant shrink-0 px-sm">chevron_right</span>
+</div>
+<!-- Card 4 (With Image) -->
+<div class="bg-surface-container-lowest p-sm rounded-lg flex items-center gap-md hover:bg-surface-container-low transition-colors cursor-pointer active:scale-95 duration-200">
+<div class="w-20 h-20 rounded-lg overflow-hidden shrink-0 bg-surface-container-high relative">
+<img alt="Workout thumbnail" class="w-full h-full object-cover" data-alt="Close up of a pair of dumbbells resting on a gym floor. The background is slightly out of focus, showing a clean, modern fitness facility with soft mint and charcoal tones. The lighting is diffused and bright, creating an inviting atmosphere. The overall style is clean, modern, and aligned with a pastel fitness aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBfoli_9FCZ2ANT-vzAf3dg_7-1U4lv5iQpJ7nxzDIGtoO_p_J5N1J2ZdHz8aadLWv85b9YJgDHkVZbQHMkhYv_NzOQin96svTCYZ8BsENwlS7A2JbrM-uvex79SThoPBLIGLsTErrVC_WHoa4pEfZ8vwvC0We9tQ_OHdJOaHdkc-aLYVDbHKDtE3o7LIv42URTV6JIsi4wXGyE7ihl9HSsDOzYua_gYf07EWh1pXrNGUhFF85JDPSqkqdjmDxLW3JUtqWVcSClKJw"/>
+</div>
+<div class="flex-grow">
+<h4 class="font-headline-md text-headline-md-mobile text-on-surface">Upper Body Sculpt</h4>
+<p class="font-body-md text-body-md text-on-surface-variant">Sun, Oct 11 • 40 min</p>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant shrink-0 px-sm">chevron_right</span>
+</div>
+</section>
+<!-- Spacer for FAB if needed -->
+<div class="h-md md:hidden"></div>
+</main>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="md:hidden fixed bottom-0 w-full z-50 rounded-t-lg bg-surface/80 backdrop-blur-xl bg-surface flex justify-around items-center h-xl px-gutter pb-safe">
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-base py-xs hover:bg-surface-variant/50 active:scale-90 transition-all duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="fitness_center">fitness_center</span>
+<span class="font-label-bold text-label-bold mt-xs">Workouts</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-base py-xs hover:bg-surface-variant/50 active:scale-90 transition-all duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="calendar_month">calendar_month</span>
+<span class="font-label-bold text-label-bold mt-xs">Calendar</span>
+</a>
+<!-- Active Tab: Progress -->
+<a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-base py-xs hover:bg-surface-variant/50 active:scale-90 transition-all duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="monitoring" style="font-variation-settings: 'FILL' 1;">monitoring</span>
+<span class="font-label-bold text-label-bold mt-xs">Progress</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-base py-xs hover:bg-surface-variant/50 active:scale-90 transition-all duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-label-bold text-label-bold mt-xs">Settings</span>
+</a>
+</nav>
+<!-- Desktop Side Nav / Top Nav Elements would typically go here based on responsive logic, 
+         but adhering to the BottomNavBar requirement for mobile view as primary focus per typical "app" feel requested -->
+</body></html>

@@ -1,0 +1,85 @@
+---
+description: Flutter and Dart conventions for FlexFlow (codedbykay_basic_gym)
+globs: lib/**/*.dart
+alwaysApply: false
+---
+
+# FlexFlow Flutter Best Practices
+
+Follow [Effective Dart](https://dart.dev/effective-dart), [Flutter app architecture](https://docs.flutter.dev/app-architecture), and the patterns already used in this project.
+
+## Project layout
+
+```
+lib/
+  main.dart          # App entry, MaterialApp, system UI chrome
+  screens/           # Full-page views (CalendarScreen, WorkoutsScreen, …)
+  widgets/           # Reusable UI (PrimaryPillButton, Squish, FlexTopBar, …)
+  theme/             # Design tokens (AppColors, AppSpacing, AppTheme, …)
+  models/            # Domain types (Workout, Exercise, enums)
+  data/              # Data access (SampleData today → repositories later)
+```
+
+- **Screens** own page layout and local UI state; **widgets** are reusable and parameterized.
+- **Models** are plain Dart classes/enums — no Flutter imports unless UI metadata is needed (e.g. `IconData` on enums).
+- **Data layer** is the single source of truth. UI reads from `data/`, never hardcodes sample lists inline.
+- Data is **local-only**. When persisting, use a repository abstraction so storage can change without touching screens.
+
+## Design system (Kinetic Pastel)
+
+Never hardcode colors, spacing, radii, or text styles in screens/widgets.
+
+```dart
+// ✅ GOOD
+padding: const EdgeInsets.all(AppSpacing.gutter),
+style: AppTextStyles.headlineMd,
+color: AppColors.primary,
+borderRadius: BorderRadius.circular(AppRadius.card),
+
+// ❌ BAD
+padding: const EdgeInsets.all(16),
+style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+```
+
+- Theme: `AppTheme.light()` in `main.dart` with `useMaterial3: true`.
+- Fonts: Plus Jakarta Sans (headlines/labels) and Be Vietnam Pro (body) via `google_fonts`.
+- Interactive taps: wrap targets in `Squish` instead of custom press shadows.
+- Shared chrome: `FlexTopBar`, `FlexBottomNav` — keep shell navigation in `HomeShell`.
+
+## Widget patterns
+
+- Prefer `StatelessWidget` for pure UI; use `StatefulWidget` only for ephemeral screen state.
+- Use `const` constructors and `const` literals in `build()` wherever possible.
+- Compose small widgets; favor **private widget classes** (`_Header`, `_CalendarCard`) over private methods that return `Widget`.
+- Break large `build()` methods into private widgets in the same file.
+- Long lists: `ListView.builder` / `SliverList`, not unbounded `Column` of children.
+- Never run network calls, heavy computation, or side effects inside `build()`.
+- Scrollable screen bodies: use `ListView` (or `CustomScrollView`) with bottom padding so content clears the FAB/nav bar.
+
+## State, navigation, and architecture
+
+- **Built-in state first**: `setState`, `ValueNotifier`, or `ChangeNotifier` before adding third-party packages.
+- Separate **ephemeral UI state** (selected tab, animation) from **app data** (workouts, settings).
+- When app data grows, introduce ViewModels + repositories per Flutter's MVVM guidance; add use-cases only for complex orchestration.
+- **Navigation**: `Navigator.push` / `MaterialPageRoute` for detail flows (e.g. `ActiveSessionScreen`). Reserve `go_router` for when deep linking is needed.
+- Pass data via constructor parameters; use `super.key` on all widgets.
+- Dispose `AnimationController`, `Timer`, and other listeners in `dispose()`.
+
+## Dart style
+
+- Files: `snake_case.dart`. Types: `PascalCase`. Members: `camelCase`.
+- `flutter_lints` is enabled — code must pass `flutter analyze`.
+- Document public classes with `///` doc comments.
+- Prefer `final` fields; immutable models use `const` constructors.
+- Exhaustive `switch` on enums; extensions for enum display helpers (see `WorkoutCategoryX`).
+- Avoid `!` unless null is proven; prefer `?.` and early returns.
+- Use `intl` for date/number formatting.
+
+## Dependencies
+
+Current stack: `google_fonts`, `intl`, `cupertino_icons`. Add packages only when built-in APIs are insufficient; explain why in the change.
+
+## Testing
+
+- Widget tests in `test/` for reusable widgets and critical screen behavior.
+- Follow Arrange–Act–Assert; inject repositories/fakes rather than hitting `SampleData` directly in tests.
