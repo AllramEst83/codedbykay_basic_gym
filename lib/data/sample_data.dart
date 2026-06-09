@@ -3,8 +3,7 @@ import '../models/workout.dart';
 /// Static sample data used to populate screens.
 ///
 /// These are dev-only fixtures. They are NEVER passed to any repository or
-/// stored in SQLite. Production code stops importing most of these; only
-/// [weeklyVolume] is still referenced by the chart.
+/// stored in SQLite.
 class SampleData {
   SampleData._();
 
@@ -116,17 +115,6 @@ class SampleData {
     25: [WorkoutCategory.strength],
     28: [WorkoutCategory.cardio],
   };
-
-  /// Bar heights (0–1) for the weekly volume chart.
-  static const List<({String label, double height, bool today})> weeklyVolume = [
-    (label: 'Mon', height: 0.40, today: false),
-    (label: 'Tue', height: 0.60, today: false),
-    (label: 'Wed', height: 0.85, today: true),
-    (label: 'Thu', height: 0.30, today: false),
-    (label: 'Fri', height: 0.70, today: false),
-    (label: 'Sat', height: 0.50, today: false),
-    (label: 'Sun', height: 0.20, today: false),
-  ];
 
   /// Historical entries for dev-only display (unused after migration).
   static const List<WorkoutHistoryEntry> history = [

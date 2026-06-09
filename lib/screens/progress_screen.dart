@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../data/sample_data.dart';
+import '../data/progress_stats.dart';
 import '../data/session_store.dart';
 import '../models/workout.dart';
 import '../theme/app_colors.dart';
@@ -10,11 +10,36 @@ import '../theme/app_typography.dart';
 import '../widgets/squish.dart';
 import 'workout_history_screen.dart';
 
-class ProgressScreen extends StatelessWidget {
+class ProgressScreen extends StatefulWidget {
   const ProgressScreen({super.key});
 
   @override
+  State<ProgressScreen> createState() => _ProgressScreenState();
+}
+
+class _ProgressScreenState extends State<ProgressScreen> {
+  @override
+  void initState() {
+    super.initState();
+    SessionStore.instance.addListener(_onStoreChanged);
+  }
+
+  @override
+  void dispose() {
+    SessionStore.instance.removeListener(_onStoreChanged);
+    super.dispose();
+  }
+
+  void _onStoreChanged() => setState(() {});
+
+  @override
   Widget build(BuildContext context) {
+    final sessions = SessionStore.instance.sessions;
+    final now = DateTime.now();
+    final durationMinutes = thisWeekDurationMinutes(sessions, now);
+    final calories = thisWeekCalories(sessions, now);
+    final volumeBars = lastSevenDaysVolumeBars(sessions, now);
+
     return SafeArea(
       bottom: false,
       child: ListView(
@@ -27,9 +52,12 @@ class ProgressScreen extends StatelessWidget {
         children: [
           const _SectionHeader(),
           const SizedBox(height: AppSpacing.md),
-          const _SummaryRow(),
+          _SummaryRow(
+            durationMinutes: durationMinutes,
+            calories: calories,
+          ),
           const SizedBox(height: AppSpacing.lg),
-          const _VolumeChart(),
+          _VolumeChart(bars: volumeBars),
           const SizedBox(height: AppSpacing.lg),
           _HistoryHeader(
             onViewAll: () => Navigator.of(context).push(
@@ -56,26 +84,33 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _SummaryRow extends StatelessWidget {
-  const _SummaryRow();
+  const _SummaryRow({
+    required this.durationMinutes,
+    required this.calories,
+  });
+
+  final int durationMinutes;
+  final int calories;
 
   @override
   Widget build(BuildContext context) {
+    final numberFormat = NumberFormat('#,###');
     return Row(
-      children: const [
+      children: [
         Expanded(
           child: _SummaryCard(
             icon: Icons.timer_outlined,
             label: 'Duration',
-            value: '184',
+            value: durationMinutes.toString(),
             unit: 'min',
           ),
         ),
-        SizedBox(width: AppSpacing.sm),
+        const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: _SummaryCard(
             icon: Icons.local_fire_department_outlined,
             label: 'Calories',
-            value: '1,240',
+            value: numberFormat.format(calories),
             unit: 'kcal',
           ),
         ),
@@ -140,7 +175,9 @@ class _SummaryCard extends StatelessWidget {
 }
 
 class _VolumeChart extends StatelessWidget {
-  const _VolumeChart();
+  const _VolumeChart({required this.bars});
+
+  final List<({String label, double height, bool today})> bars;
 
   @override
   Widget build(BuildContext context) {
@@ -184,8 +221,14 @@ class _VolumeChart extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                for (final bar in SampleData.weeklyVolume) ...[
-                  Expanded(child: _Bar(label: bar.label, height: bar.height, today: bar.today)),
+                for (final bar in bars) ...[
+                  Expanded(
+                    child: _Bar(
+                      label: bar.label,
+                      height: bar.height,
+                      today: bar.today,
+                    ),
+                  ),
                   const SizedBox(width: 6),
                 ],
               ],
