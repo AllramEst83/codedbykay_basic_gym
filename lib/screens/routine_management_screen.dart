@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/stores/workout_store.dart';
+import '../data/utils/routine_runner.dart';
 import '../models/workout.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
@@ -43,6 +44,37 @@ class _RoutineManagementScreenState extends State<RoutineManagementScreen> {
   List<Routine> get _routines =>
       WorkoutStore.instance.routinesFor(widget.category);
 
+  Future<void> _confirmDelete(Routine routine) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete routine?', style: AppTextStyles.headlineMd),
+        content: Text(
+          'Remove "${routine.name}"? This cannot be undone. Past sessions logged from this routine will be kept.',
+          style: AppTextStyles.bodyMd,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+    await WorkoutStore.instance.deleteRoutine(routine.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Deleted "${routine.name}"')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final routines = _routines;
@@ -75,6 +107,7 @@ class _RoutineManagementScreenState extends State<RoutineManagementScreen> {
                     const SizedBox(height: AppSpacing.sm),
                 itemBuilder: (_, i) => _RoutineCard(
                   routine: routines[i],
+                  onStart: () => RoutineRunner.start(context, routines[i]),
                   onEdit: () async {
                     await Navigator.of(context).push<void>(
                       MaterialPageRoute(
@@ -85,6 +118,7 @@ class _RoutineManagementScreenState extends State<RoutineManagementScreen> {
                       ),
                     );
                   },
+                  onDelete: () => _confirmDelete(routines[i]),
                 ),
               ),
       ),
@@ -108,15 +142,31 @@ class _RoutineManagementScreenState extends State<RoutineManagementScreen> {
 // ────────────────────────────────────────────────────────────────────────
 
 class _RoutineCard extends StatelessWidget {
-  const _RoutineCard({required this.routine, required this.onEdit});
+  const _RoutineCard({
+    required this.routine,
+    required this.onStart,
+    required this.onEdit,
+    required this.onDelete,
+  });
 
   final Routine routine;
+  final VoidCallback onStart;
   final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  String get _subtitle {
+    if (routine.category == WorkoutCategory.cardio) {
+      final km = routine.targetKm;
+      return km != null ? 'Target: ${km.toStringAsFixed(1)} km' : 'Free run';
+    }
+    final count = routine.exerciseCount;
+    return '$count exercise${count == 1 ? '' : 's'}';
+  }
 
   @override
   Widget build(BuildContext context) {
     return Squish(
-      onTap: () {},
+      onTap: onStart,
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
@@ -144,45 +194,93 @@ class _RoutineCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(routine.name, style: AppTextStyles.headlineMd.copyWith(fontSize: 18)),
-                  const SizedBox(height: 2),
                   Text(
-                    '${routine.exerciseCount} exercises',
-                    style: AppTextStyles.bodyMd,
+                    routine.name,
+                    style: AppTextStyles.headlineMd.copyWith(fontSize: 18),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
+                  const SizedBox(height: 2),
+                  Text(_subtitle, style: AppTextStyles.bodyMd),
                 ],
               ),
             ),
             const SizedBox(width: AppSpacing.base),
-            Squish(
+            _IconButton(
+              icon: Icons.edit_rounded,
+              tooltip: 'Edit routine',
               onTap: onEdit,
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-              child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.base),
-                child: const Icon(
-                  Icons.edit_rounded,
-                  size: 20,
-                  color: AppColors.onSurfaceVariant,
-                ),
-              ),
+            ),
+            _IconButton(
+              icon: Icons.delete_outline_rounded,
+              tooltip: 'Delete routine',
+              onTap: onDelete,
             ),
             const SizedBox(width: AppSpacing.xs),
-            Container(
-              height: 40,
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-              decoration: BoxDecoration(
-                color: AppColors.primary,
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                'Start',
-                style: AppTextStyles.labelBold.copyWith(
-                  color: AppColors.onPrimary,
+            Squish(
+              onTap: onStart,
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              child: Container(
+                height: 40,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                ),
+                alignment: Alignment.center,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.play_arrow_rounded,
+                      color: AppColors.onPrimary,
+                      size: 18,
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
+                    Text(
+                      'Start',
+                      style: AppTextStyles.labelBold.copyWith(
+                        color: AppColors.onPrimary,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _IconButton extends StatelessWidget {
+  const _IconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Squish(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.base),
+          child: Icon(
+            icon,
+            size: 20,
+            color: AppColors.onSurfaceVariant,
+          ),
         ),
       ),
     );

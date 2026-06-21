@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 
+import 'package:intl/intl.dart';
+
 import '../data/stores/workout_store.dart';
+import '../data/utils/routine_runner.dart';
 import '../models/workout.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../widgets/resume_session_banner.dart';
 import '../widgets/squish.dart';
 import 'create_workout_screen.dart';
 import 'routine_management_screen.dart';
@@ -42,6 +46,20 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
 
   void _onStoreChanged() => setState(() {});
 
+  Future<void> _openAllRoutinesSheet(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.card),
+        ),
+      ),
+      builder: (_) => const _AllRoutinesSheet(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -56,11 +74,16 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
               AppSpacing.lg + 80,
             ),
             children: [
+              const ResumeSessionBanner(),
               const _PageHeader(),
               const SizedBox(height: AppSpacing.lg),
               ..._categoryItems(context),
               const SizedBox(height: AppSpacing.xl),
-              _RecentUpdatesHeader(onSeeAll: () {}),
+              _RecentUpdatesHeader(
+                onSeeAll: WorkoutStore.instance.hasRoutines
+                    ? () => _openAllRoutinesSheet(context)
+                    : null,
+              ),
               const SizedBox(height: AppSpacing.gutter),
               ..._recentItems(context),
             ],
@@ -223,7 +246,8 @@ class _CategoryRow extends StatelessWidget {
 class _RecentUpdatesHeader extends StatelessWidget {
   const _RecentUpdatesHeader({required this.onSeeAll});
 
-  final VoidCallback onSeeAll;
+  /// `null` hides the "See All" link (e.g. when no routines exist yet).
+  final VoidCallback? onSeeAll;
 
   @override
   Widget build(BuildContext context) {
@@ -232,19 +256,22 @@ class _RecentUpdatesHeader extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Text('Recent Updates', style: AppTextStyles.headlineMd),
-        Squish(
-          onTap: onSeeAll,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.base,
-              vertical: AppSpacing.xs,
-            ),
-            child: Text(
-              'See All',
-              style: AppTextStyles.labelBold.copyWith(color: AppColors.primary),
+        if (onSeeAll != null)
+          Squish(
+            onTap: onSeeAll,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.base,
+                vertical: AppSpacing.xs,
+              ),
+              child: Text(
+                'See All',
+                style: AppTextStyles.labelBold.copyWith(
+                  color: AppColors.primary,
+                ),
+              ),
             ),
           ),
-        ),
       ],
     );
   }
@@ -314,6 +341,193 @@ class _RecentRow extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _AllRoutinesSheet extends StatelessWidget {
+  const _AllRoutinesSheet();
+
+  String _subtitle(Routine r) {
+    final updated = DateFormat('MMM d').format(r.updatedAt);
+    if (r.category == WorkoutCategory.cardio) {
+      final km = r.targetKm;
+      final detail = km != null ? '${km.toStringAsFixed(1)} km target' : 'Free run';
+      return '$detail • Updated $updated';
+    }
+    final count = r.exerciseCount;
+    return '$count exercise${count == 1 ? '' : 's'} • Updated $updated';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final routines = WorkoutStore.instance.allSortedByRecent;
+    final inset = MediaQuery.of(context).padding.bottom;
+    final height = MediaQuery.of(context).size.height * 0.75;
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: height),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.containerMargin,
+                AppSpacing.md,
+                AppSpacing.containerMargin,
+                AppSpacing.base,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'All Routines',
+                      style: AppTextStyles.headlineMd,
+                    ),
+                  ),
+                  Squish(
+                    onTap: () => Navigator.of(context).pop(),
+                    child: const Padding(
+                      padding: EdgeInsets.all(AppSpacing.xs),
+                      child: Icon(
+                        Icons.close_rounded,
+                        color: AppColors.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: EdgeInsets.fromLTRB(
+                  AppSpacing.containerMargin,
+                  0,
+                  AppSpacing.containerMargin,
+                  inset + AppSpacing.md,
+                ),
+                itemCount: routines.length,
+                separatorBuilder: (_, _) =>
+                    const SizedBox(height: AppSpacing.sm),
+                itemBuilder: (_, i) {
+                  final r = routines[i];
+                  return Squish(
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      RoutineRunner.start(context, r);
+                    },
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    child: Container(
+                      padding: const EdgeInsets.all(AppSpacing.sm),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceContainerLowest,
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: r.category == WorkoutCategory.cardio
+                                  ? AppColors.primaryContainer
+                                  : AppColors.secondaryContainer,
+                              borderRadius:
+                                  BorderRadius.circular(AppRadius.sm),
+                            ),
+                            alignment: Alignment.center,
+                            child: Icon(
+                              r.category.icon,
+                              color: r.category == WorkoutCategory.cardio
+                                  ? AppColors.onPrimaryContainer
+                                  : AppColors.onSecondaryContainer,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  r.name,
+                                  style: AppTextStyles.labelBold,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  _subtitle(r),
+                                  style: AppTextStyles.bodyMd.copyWith(
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Squish(
+                            onTap: () async {
+                              Navigator.of(context).pop();
+                              await Navigator.of(context).push<void>(
+                                MaterialPageRoute(
+                                  builder: (_) => CreateWorkoutScreen(
+                                    defaultCategory: r.category,
+                                    editRoutine: r,
+                                  ),
+                                ),
+                              );
+                            },
+                            borderRadius:
+                                BorderRadius.circular(AppRadius.pill),
+                            child: const Padding(
+                              padding: EdgeInsets.all(AppSpacing.base),
+                              child: Icon(
+                                Icons.edit_outlined,
+                                size: 18,
+                                color: AppColors.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.sm,
+                              vertical: AppSpacing.xs,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius:
+                                  BorderRadius.circular(AppRadius.pill),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.play_arrow_rounded,
+                                  color: AppColors.onPrimary,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 2),
+                                Text(
+                                  'Start',
+                                  style: AppTextStyles.labelBold.copyWith(
+                                    color: AppColors.onPrimary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

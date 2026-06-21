@@ -7,6 +7,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import '../widgets/squish.dart';
+import 'session_details_screen.dart';
 
 /// Full workout history list, read from [SessionStore].
 class WorkoutHistoryScreen extends StatefulWidget {
@@ -156,7 +157,11 @@ class _HistoryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = _iconPalette();
     return Squish(
-      onTap: () {},
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SessionDetailsScreen(session: session),
+        ),
+      ),
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.sm),
         decoration: BoxDecoration(

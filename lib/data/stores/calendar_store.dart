@@ -18,6 +18,11 @@ class CalendarStore extends ChangeNotifier {
   /// Cache keyed by the start-of-day [DateTime] (time zeroed).
   final Map<DateTime, List<Workout>> _schedule = {};
 
+  /// Inclusive lower / upper bounds of the date range currently cached in
+  /// [_schedule]. Used by [ensureMonthLoaded] to avoid redundant DB hits.
+  DateTime? _loadedRangeStart;
+  DateTime? _loadedRangeEnd;
+
   /// Normalises any [DateTime] to midnight of that day.
   static DateTime _dayKey(DateTime date) =>
       DateTime(date.year, date.month, date.day);
@@ -26,20 +31,46 @@ class CalendarStore extends ChangeNotifier {
   /// Call once in [main] after the database is open.
   Future<void> hydrate(ScheduleRepository repo) async {
     _repo = repo;
-    final now = DateTime.now();
-    await _loadRange(
-      DateTime(now.year, now.month - 1),
-      DateTime(now.year, now.month + 2),
-    );
+    await ensureMonthLoaded(DateTime.now());
   }
 
-  Future<void> _loadRange(DateTime from, DateTime to) async {
-    final workouts = await _repo.getForDateRange(from, to);
+  /// Loads [month] (and a 1-month buffer either side) if it is not already
+  /// cached. Cheap to call repeatedly — does nothing when the window is a
+  /// subset of the already-loaded range.
+  Future<void> ensureMonthLoaded(DateTime month) async {
+    final from = DateTime(month.year, month.month - 1);
+    final to = DateTime(month.year, month.month + 2, 0); // last day of +1 mo
+    await _ensureRangeLoaded(from, to);
+  }
+
+  Future<void> _ensureRangeLoaded(DateTime from, DateTime to) async {
+    final wantStart = _dayKey(from);
+    final wantEnd = _dayKey(to);
+
+    if (_loadedRangeStart != null &&
+        _loadedRangeEnd != null &&
+        !wantStart.isBefore(_loadedRangeStart!) &&
+        !wantEnd.isAfter(_loadedRangeEnd!)) {
+      return;
+    }
+
+    final mergedStart =
+        _loadedRangeStart == null || wantStart.isBefore(_loadedRangeStart!)
+            ? wantStart
+            : _loadedRangeStart!;
+    final mergedEnd =
+        _loadedRangeEnd == null || wantEnd.isAfter(_loadedRangeEnd!)
+            ? wantEnd
+            : _loadedRangeEnd!;
+
+    final workouts = await _repo.getForDateRange(mergedStart, mergedEnd);
     _schedule.clear();
     for (final w in workouts) {
       final key = _dayKey(w.scheduledDate);
       _schedule.putIfAbsent(key, () => []).add(w);
     }
+    _loadedRangeStart = mergedStart;
+    _loadedRangeEnd = mergedEnd;
     notifyListeners();
   }
 

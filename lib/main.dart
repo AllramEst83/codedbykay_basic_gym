@@ -5,12 +5,12 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'data/providers/repository_provider.dart';
 import 'data/state/app_state.dart';
 import 'data/stores/calendar_store.dart';
+import 'data/stores/in_progress_session_store.dart';
 import 'data/stores/session_store.dart';
 import 'data/stores/settings_store.dart';
 import 'data/stores/workout_store.dart';
 import 'data/sqflite/app_database.dart';
 import 'screens/splash_screen.dart';
-import 'theme/app_colors.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
@@ -20,15 +20,6 @@ Future<void> main() async {
   // data back to the main isolate (e.g. elapsed time updates).
   FlutterForegroundTask.initCommunicationPort();
 
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      systemNavigationBarColor: AppColors.surface,
-      systemNavigationBarIconBrightness: Brightness.dark,
-    ),
-  );
-
   // Open the SQLite database and hydrate all in-memory stores before rendering.
   final db = await AppDatabase.open();
   final repos = RepositoryProvider.fromDatabase(db);
@@ -37,6 +28,7 @@ Future<void> main() async {
   await WorkoutStore.instance.hydrate(repos.routines);
   await CalendarStore.instance.hydrate(repos.schedule);
   await SessionStore.instance.hydrate(repos.sessions);
+  await InProgressSessionStore.instance.hydrate(repos.inProgressSessions);
 
   runApp(const FlexFlowApp());
 }
@@ -55,6 +47,24 @@ class FlexFlowApp extends StatelessWidget {
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: mode,
+          builder: (context, child) {
+            final brightness = Theme.of(context).brightness;
+            final isDark = brightness == Brightness.dark;
+            final navBarColor = Theme.of(context).colorScheme.surface;
+            return AnnotatedRegion<SystemUiOverlayStyle>(
+              value: SystemUiOverlayStyle(
+                statusBarColor: Colors.transparent,
+                statusBarIconBrightness:
+                    isDark ? Brightness.light : Brightness.dark,
+                statusBarBrightness:
+                    isDark ? Brightness.dark : Brightness.light,
+                systemNavigationBarColor: navBarColor,
+                systemNavigationBarIconBrightness:
+                    isDark ? Brightness.light : Brightness.dark,
+              ),
+              child: child ?? const SizedBox.shrink(),
+            );
+          },
           home: const SplashScreen(),
         );
       },

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../data/providers/repository_provider.dart';
 import '../data/repositories/in_progress_session_repository.dart';
 import '../data/services/session_notification_service.dart';
+import '../data/stores/in_progress_session_store.dart';
 import '../data/stores/session_store.dart';
 import '../models/workout.dart';
 import '../theme/app_colors.dart';
@@ -12,6 +13,7 @@ import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import '../widgets/category_pill.dart';
 import '../widgets/primary_pill_button.dart';
+import '../widgets/rest_timer_sheet.dart';
 import '../widgets/squish.dart';
 
 class ActiveSessionScreen extends StatefulWidget {
@@ -130,7 +132,7 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
 
   Future<void> _saveInProgressSession() async {
     if (!mounted) return;
-    
+
     try {
       final session = InProgressSession(
         id: _sessionId,
@@ -145,16 +147,18 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
         exercises: _exercises,
       );
       await _repo.save(session);
-    } catch (e) {
-      // Silent fail for now - we'll handle errors better later
+      await InProgressSessionStore.instance.refresh();
+    } catch (_) {
+      // Persistence is best-effort; the 5-second timer will retry shortly.
     }
   }
 
   Future<void> _deleteInProgressSession() async {
     try {
       await _repo.delete(widget.routine.id);
-    } catch (e) {
-      // Silent fail
+      await InProgressSessionStore.instance.refresh();
+    } catch (_) {
+      // Silent fail – the row may not have been persisted yet.
     }
   }
 
@@ -199,6 +203,7 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
   }
 
   void _completeActiveSet() {
+    final hasMoreSets = _currentExercise.sets.any((s) => !s.completed);
     setState(() {
       final idx = _selectedSetIndex;
       if (idx < 0 || idx >= _currentExercise.sets.length) return;
@@ -206,6 +211,21 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
       final next = _currentExercise.sets.indexWhere((s) => !s.completed);
       if (next >= 0) _selectedSetIndex = next;
     });
+
+    // Auto-launch the rest timer when there are still incomplete sets left
+    // either in this exercise or any later one.
+    final moreInExercise = _currentExercise.sets.any((s) => !s.completed);
+    final moreLater = _exercises
+        .skip(_currentExerciseIndex + 1)
+        .any((e) => e.sets.any((s) => !s.completed));
+    if (hasMoreSets && (moreInExercise || moreLater)) {
+      _showRestTimer();
+    }
+  }
+
+  void _showRestTimer() {
+    if (!mounted) return;
+    RestTimerSheet.show(context);
   }
 
   void _selectSet(int index) {
@@ -263,6 +283,112 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
     } finally {
       controller.dispose();
     }
+  }
+
+  Future<void> _openSessionMenu() async {
+    final result = await showModalBottomSheet<_MenuAction>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.card),
+        ),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.containerMargin,
+            AppSpacing.md,
+            AppSpacing.containerMargin,
+            AppSpacing.md,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Session Options', style: AppTextStyles.headlineMd),
+              const SizedBox(height: AppSpacing.md),
+              _MenuRow(
+                icon: Icons.flag_rounded,
+                title: 'Finish now',
+                subtitle:
+                    'Save the workout with the sets you have completed so far.',
+                onTap: () => Navigator.of(ctx).pop(_MenuAction.finishEarly),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              _MenuRow(
+                icon: Icons.timer_rounded,
+                title: 'Start rest timer',
+                subtitle: 'Open the countdown timer without completing a set.',
+                onTap: () => Navigator.of(ctx).pop(_MenuAction.openRest),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              _MenuRow(
+                icon: Icons.delete_outline_rounded,
+                title: 'Discard session',
+                subtitle:
+                    'Throw away the in-progress data without saving a record.',
+                destructive: true,
+                onTap: () => Navigator.of(ctx).pop(_MenuAction.discard),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (!mounted || result == null) return;
+    switch (result) {
+      case _MenuAction.finishEarly:
+        await _finishWorkout();
+        break;
+      case _MenuAction.openRest:
+        _showRestTimer();
+        break;
+      case _MenuAction.discard:
+        await _discardSession();
+        break;
+    }
+  }
+
+  Future<void> _discardSession() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Discard session?', style: AppTextStyles.headlineMd),
+        content: const Text(
+          'Your progress for this session will be lost.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    _ticker?.cancel();
+    _saveTimer?.cancel();
+    await SessionNotificationService.instance.stop();
+    await _deleteInProgressSession();
+
+    // Mark all sets completed in-memory so [dispose] does NOT re-save the
+    // in-progress session after we navigate away.
+    for (final ex in _exercises) {
+      for (final s in ex.sets) {
+        s.completed = true;
+      }
+    }
+
+    if (mounted) Navigator.of(context).maybePop();
   }
 
   Future<void> _finishWorkout() async {
@@ -329,7 +455,7 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
             },
             title: widget.routine.name,
             elapsed: _formatDuration(_elapsed),
-            onSettings: () {},
+            onSettings: _openSessionMenu,
             onClose: () => Navigator.of(context).maybePop(),
           ),
           Expanded(
@@ -360,7 +486,10 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
                       const SizedBox(height: AppSpacing.md),
                       ..._buildSets(),
                       const SizedBox(height: AppSpacing.lg),
-                      const _RestPreview(seconds: 90),
+                      _RestPreview(
+                        seconds: 90,
+                        onTap: _showRestTimer,
+                      ),
                       const SizedBox(height: AppSpacing.lg),
                     ],
                   )
@@ -521,6 +650,17 @@ class _SessionTopBar extends StatelessWidget {
                   ],
                 ),
               ],
+            ),
+          ),
+          Squish(
+            onTap: onSettings,
+            child: const Padding(
+              padding: EdgeInsets.only(right: AppSpacing.sm),
+              child: Icon(
+                Icons.more_vert_rounded,
+                color: AppColors.primary,
+                size: 28,
+              ),
             ),
           ),
           Squish(
@@ -902,14 +1042,15 @@ class _SetFieldState extends State<_SetField> {
 // ────────────────────────────────────────────────────────────────────────
 
 class _RestPreview extends StatelessWidget {
-  const _RestPreview({required this.seconds});
+  const _RestPreview({required this.seconds, required this.onTap});
 
   final int seconds;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Squish(
-      onTap: () {},
+      onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
@@ -958,6 +1099,87 @@ class _RestPreview extends StatelessWidget {
 // ────────────────────────────────────────────────────────────────────────
 // Bottom actions
 // ────────────────────────────────────────────────────────────────────────
+
+enum _MenuAction { finishEarly, openRest, discard }
+
+class _MenuRow extends StatelessWidget {
+  const _MenuRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = destructive ? AppColors.error : AppColors.onSurface;
+    return Squish(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: destructive
+                    ? AppColors.errorContainer.withValues(alpha: 0.6)
+                    : AppColors.primaryContainer,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: Icon(
+                icon,
+                color: destructive
+                    ? AppColors.error
+                    : AppColors.onPrimaryContainer,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: AppTextStyles.labelBold.copyWith(
+                      color: fg,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: AppTextStyles.bodyMd.copyWith(fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: AppColors.onSurfaceVariant,
+              size: 22,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _BottomActions extends StatelessWidget {
   const _BottomActions({

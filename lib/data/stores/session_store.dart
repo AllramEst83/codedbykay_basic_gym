@@ -35,4 +35,14 @@ class SessionStore extends ChangeNotifier {
     _sessions.insert(0, session);
     notifyListeners();
   }
+
+  /// Deletes the session with [id] from the DB and the cache.
+  /// No-op when the id is not present.
+  Future<void> delete(String id) async {
+    final index = _sessions.indexWhere((s) => s.id == id);
+    if (index == -1) return;
+    await _repo.delete(id);
+    _sessions.removeAt(index);
+    notifyListeners();
+  }
 }
