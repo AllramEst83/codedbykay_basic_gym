@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -12,6 +13,7 @@ import '../models/workout.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../widgets/confetti_overlay.dart';
 import '../widgets/primary_pill_button.dart';
 import '../widgets/squish.dart';
 
@@ -36,14 +38,33 @@ double _haversineKm(double lat1, double lon1, double lat2, double lon2) {
   return r * c;
 }
 
-/// Formats a pace value as "mm:ss /km". Returns "--:-- /km" when pace is
-/// unknown (zero or near-zero).
-String _formatPace(double paceKmh) {
-  if (paceKmh < 0.1) return '--:-- /km';
+/// Formats a pace value as "mm:ss". Returns "--:--" when pace is unknown
+/// (zero or near-zero). The unit ("min/km") is rendered separately so the
+/// caller can lay out the label and value without baking the unit into the
+/// number itself.
+String _formatPaceMinPerKm(double paceKmh) {
+  if (paceKmh < 0.1) return '--:--';
   final minPerKm = 60.0 / paceKmh;
   final min = minPerKm.floor();
   final sec = ((minPerKm - min) * 60).round().clamp(0, 59);
-  return '${min.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')} /km';
+  return '${min.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
+}
+
+/// Formats `currentKm` against `targetKm` for the live distance readout.
+///
+/// Switches automatically between metres and kilometres so a 100 m target
+/// reads `100 / 100 m` rather than the visually-cramped `0.10 / 0.1 km`,
+/// which is the source of the "looks like 0.01" confusion reported by users.
+String _formatDistancePair(double currentKm, double targetKm) {
+  if (targetKm > 0 && targetKm < 1.0) {
+    final c = (currentKm * 1000).round();
+    final t = (targetKm * 1000).round();
+    return '$c / $t m';
+  }
+  final tStr = targetKm == targetKm.roundToDouble()
+      ? targetKm.toStringAsFixed(0)
+      : targetKm.toStringAsFixed(1);
+  return '${currentKm.toStringAsFixed(2)} / $tStr km';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -365,6 +386,13 @@ class _RunningSessionScreenState extends State<RunningSessionScreen> {
   int _lastCuedKm = 0;
   bool _audioCuesEnabled = true;
 
+  /// True once the user crosses [widget.targetKm] for the first time.
+  /// Drives the confetti overlay and the "Distance Reached" banner.
+  bool _targetReached = false;
+
+  /// Controls visibility of the one-shot confetti overlay.
+  bool _showConfetti = false;
+
   late final _LocationService _locationService;
 
   @override
@@ -393,7 +421,18 @@ class _RunningSessionScreenState extends State<RunningSessionScreen> {
       _lastCuedKm = curr;
       _playKmCue();
     }
-    setState(() => _distanceKm = km);
+    final justReached =
+        !_targetReached && widget.targetKm > 0 && km >= widget.targetKm;
+    setState(() {
+      _distanceKm = km;
+      if (justReached) {
+        _targetReached = true;
+        _showConfetti = true;
+      }
+    });
+    if (justReached) {
+      HapticFeedback.mediumImpact();
+    }
   }
 
   void _onPaceUpdated(double paceKmh) {
@@ -539,38 +578,78 @@ class _RunningSessionScreenState extends State<RunningSessionScreen> {
         iconTheme: const IconThemeData(color: AppColors.primary),
       ),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.containerMargin,
-            AppSpacing.lg,
-            AppSpacing.containerMargin,
-            AppSpacing.lg,
-          ),
+        child: Stack(
           children: [
-            _TimerDisplay(
-              elapsed: _formatDuration(_elapsed),
-              paused: _paused,
-              started: _started,
+            ListView(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.containerMargin,
+                AppSpacing.lg,
+                AppSpacing.containerMargin,
+                AppSpacing.lg,
+              ),
+              children: [
+                _TimerDisplay(
+                  elapsed: _formatDuration(_elapsed),
+                  paused: _paused,
+                  started: _started,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                _ControlButtons(
+                  started: _started,
+                  paused: _paused,
+                  onStart: _onStart,
+                  onPauseResume: _onPauseResume,
+                  onStop: _onStop,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 350),
+                  switchInCurve: Curves.easeOutBack,
+                  switchOutCurve: Curves.easeIn,
+                  transitionBuilder: (child, anim) => FadeTransition(
+                    opacity: anim,
+                    child: SizeTransition(
+                      sizeFactor: anim,
+                      axisAlignment: -1,
+                      child: child,
+                    ),
+                  ),
+                  child: _targetReached
+                      ? const Padding(
+                          key: ValueKey('reached-banner'),
+                          padding: EdgeInsets.only(bottom: AppSpacing.sm),
+                          child: _DistanceReachedBanner(),
+                        )
+                      : const SizedBox.shrink(key: ValueKey('reached-empty')),
+                ),
+                _DistanceSection(
+                  currentKm: _distanceKm,
+                  targetKm: widget.targetKm,
+                  paceKmh: _currentPaceKmh,
+                  reached: _targetReached,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                _AudioCueToggle(
+                  enabled: _audioCuesEnabled,
+                  onToggle: (v) => setState(() => _audioCuesEnabled = v),
+                ),
+              ],
             ),
-            const SizedBox(height: AppSpacing.lg),
-            _ControlButtons(
-              started: _started,
-              paused: _paused,
-              onStart: _onStart,
-              onPauseResume: _onPauseResume,
-              onStop: _onStop,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            _DistanceSection(
-              currentKm: _distanceKm,
-              targetKm: widget.targetKm,
-              paceKmh: _currentPaceKmh,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            _AudioCueToggle(
-              enabled: _audioCuesEnabled,
-              onToggle: (v) => setState(() => _audioCuesEnabled = v),
-            ),
+            if (_showConfetti)
+              Positioned.fill(
+                child: ConfettiOverlay(
+                  colors: const [
+                    AppColors.primary,
+                    AppColors.primaryContainer,
+                    AppColors.secondaryContainer,
+                    AppColors.tertiaryContainer,
+                    AppColors.primaryFixedDim,
+                  ],
+                  onDone: () {
+                    if (mounted) setState(() => _showConfetti = false);
+                  },
+                ),
+              ),
           ],
         ),
       ),
@@ -717,11 +796,13 @@ class _DistanceSection extends StatelessWidget {
     required this.currentKm,
     required this.targetKm,
     required this.paceKmh,
+    required this.reached,
   });
 
   final double currentKm;
   final double targetKm;
   final double paceKmh;
+  final bool reached;
 
   @override
   Widget build(BuildContext context) {
@@ -743,8 +824,7 @@ class _DistanceSection extends StatelessWidget {
             children: [
               Text('Distance', style: AppTextStyles.labelBold),
               Text(
-                '${currentKm.toStringAsFixed(2)} / '
-                '${targetKm.toStringAsFixed(1)} km',
+                _formatDistancePair(currentKm, targetKm),
                 style: AppTextStyles.bodyMd.copyWith(
                   color: AppColors.primary,
                   fontWeight: FontWeight.w700,
@@ -753,20 +833,105 @@ class _DistanceSection extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
-          _DistanceBar(currentKm: currentKm, targetKm: targetKm),
+          _DistanceBar(
+            currentKm: currentKm,
+            targetKm: targetKm,
+            reached: reached,
+          ),
           const SizedBox(height: AppSpacing.sm),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Pace', style: AppTextStyles.labelBold),
-              Text(
-                _formatPace(paceKmh),
-                style: AppTextStyles.bodyMd.copyWith(
-                  color: AppColors.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Pace', style: AppTextStyles.labelBold),
+                  Text(
+                    'Time to cover one kilometre',
+                    style: AppTextStyles.bodyMd.copyWith(fontSize: 12),
+                  ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: RichText(
+                  textAlign: TextAlign.right,
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: _formatPaceMinPerKm(paceKmh),
+                        style: AppTextStyles.bodyMd.copyWith(
+                          color: AppColors.onSurfaceVariant,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      TextSpan(
+                        text: ' min/km',
+                        style: AppTextStyles.bodyMd.copyWith(
+                          color: AppColors.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Celebration banner shown when the user crosses [RunningSessionScreen.targetKm].
+class _DistanceReachedBanner extends StatelessWidget {
+  const _DistanceReachedBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.primaryContainer,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(
+          color: AppColors.primary.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.emoji_events_rounded,
+            color: AppColors.primary,
+            size: 28,
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Distance Reached!',
+                  style: AppTextStyles.labelBold.copyWith(
+                    color: AppColors.primary,
+                    fontSize: 16,
+                  ),
+                ),
+                Text(
+                  'Great work — keep going or tap Stop to finish.',
+                  style: AppTextStyles.bodyMd.copyWith(
+                    fontSize: 12,
+                    color: AppColors.onPrimaryContainer,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -779,10 +944,15 @@ class _DistanceSection extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _DistanceBar extends StatelessWidget {
-  const _DistanceBar({required this.currentKm, required this.targetKm});
+  const _DistanceBar({
+    required this.currentKm,
+    required this.targetKm,
+    required this.reached,
+  });
 
   final double currentKm;
   final double targetKm;
+  final bool reached;
 
   @override
   Widget build(BuildContext context) {
@@ -792,6 +962,7 @@ class _DistanceBar extends StatelessWidget {
         painter: _DistanceBarPainter(
           currentKm: currentKm,
           targetKm: targetKm,
+          reached: reached,
           fillColor: AppColors.primary,
           trackColor: AppColors.surfaceContainerHighest,
           tickColor: AppColors.surface,
@@ -809,6 +980,7 @@ class _DistanceBarPainter extends CustomPainter {
   _DistanceBarPainter({
     required this.currentKm,
     required this.targetKm,
+    required this.reached,
     required this.fillColor,
     required this.trackColor,
     required this.tickColor,
@@ -817,6 +989,7 @@ class _DistanceBarPainter extends CustomPainter {
 
   final double currentKm;
   final double targetKm;
+  final bool reached;
   final Color fillColor;
   final Color trackColor;
   final Color tickColor;
@@ -834,10 +1007,18 @@ class _DistanceBarPainter extends CustomPainter {
       const Radius.circular(_barRadius),
     );
 
-    // Track background
-    canvas.drawRRect(rrect, Paint()..color = trackColor);
+    // Once the target is reached the track itself picks up a faint primary
+    // tint so the bar feels visibly "completed" instead of plateauing on a
+    // neutral grey.
+    final trackPaint = Paint()
+      ..color = reached
+          ? Color.alphaBlend(
+              fillColor.withValues(alpha: 0.18),
+              trackColor,
+            )
+          : trackColor;
+    canvas.drawRRect(rrect, trackPaint);
 
-    // Progress fill
     if (targetKm > 0 && currentKm > 0) {
       final progress = (currentKm / targetKm).clamp(0.0, 1.0);
       final fillRect = Rect.fromLTWH(0, 0, size.width * progress, _barHeight);
@@ -851,40 +1032,50 @@ class _DistanceBarPainter extends CustomPainter {
       canvas.restore();
     }
 
-    // Tick marks at each integer km (not at 0 or targetKm)
-    if (targetKm > 0) {
-      final tickPaint = Paint()
-        ..color = tickColor
-        ..strokeWidth = 1.5;
+    if (targetKm <= 0) return;
+
+    final useMetres = targetKm < 1.0;
+    final tickPaint = Paint()
+      ..color = tickColor
+      ..strokeWidth = 1.5;
+
+    if (useMetres) {
+      // Sub-1 km targets: just label the endpoints in metres. No interior ticks.
+      final targetMetres = (targetKm * 1000).round();
+      _drawLabel(canvas, size, 0, '0');
+      _drawLabel(canvas, size, 1, '$targetMetres m');
+    } else {
+      // Whole-kilometre ticks and labels (0, 1, 2, …, target).
       final int ticks = targetKm.ceil();
       for (int i = 1; i < ticks; i++) {
         if (i >= targetKm) break;
         final x = (i / targetKm) * size.width;
         canvas.drawLine(Offset(x, 0), Offset(x, _barHeight), tickPaint);
       }
-    }
-
-    // Labels: 0, 1, 2, … targetKm.ceil()
-    if (targetKm > 0) {
       final int labelCount = targetKm.ceil();
       for (int i = 0; i <= labelCount; i++) {
         final double normX = i / targetKm;
         if (normX > 1.0) break;
-        final double x = normX * size.width;
-        final tp = TextPainter(
-          text: TextSpan(text: '$i', style: labelStyle),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        final labelX = (x - tp.width / 2).clamp(0.0, size.width - tp.width);
-        tp.paint(canvas, Offset(labelX, _labelTopOffset));
+        _drawLabel(canvas, size, normX, '$i');
       }
     }
+  }
+
+  void _drawLabel(Canvas canvas, Size size, double normX, String text) {
+    final double x = normX * size.width;
+    final tp = TextPainter(
+      text: TextSpan(text: text, style: labelStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final labelX = (x - tp.width / 2).clamp(0.0, size.width - tp.width);
+    tp.paint(canvas, Offset(labelX, _labelTopOffset));
   }
 
   @override
   bool shouldRepaint(_DistanceBarPainter old) =>
       old.currentKm != currentKm ||
       old.targetKm != targetKm ||
+      old.reached != reached ||
       old.fillColor != fillColor ||
       old.trackColor != trackColor;
 }
