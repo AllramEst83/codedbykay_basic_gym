@@ -26,12 +26,22 @@ class WorkoutStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// All routines for [category], in current sort order.
-  List<Routine> routinesFor(WorkoutCategory category) =>
-      _routines.where((r) => r.category == category).toList();
+  /// All routines for [category], most recently updated first.
+  List<Routine> routinesFor(WorkoutCategory category) {
+    final filtered = _routines.where((r) => r.category == category).toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return filtered;
+  }
 
   /// All routines sorted by most recently updated first.
-  List<Routine> get allSortedByRecent => List.of(_routines);
+  List<Routine> get allSortedByRecent {
+    final sorted = List<Routine>.of(_routines)
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return sorted;
+  }
+
+  /// True when the store has at least one routine.
+  bool get hasRoutines => _routines.isNotEmpty;
 
   /// Finds a [Routine] for a calendar [Workout].
   ///

@@ -8,4 +8,7 @@ abstract class SessionRepository {
 
   /// Persists a newly completed session with all its exercises and sets.
   Future<void> save(WorkoutSession session);
+
+  /// Hard-deletes a completed session and all its child exercises/sets.
+  Future<void> delete(String id);
 }

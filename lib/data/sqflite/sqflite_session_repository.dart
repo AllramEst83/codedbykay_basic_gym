@@ -47,6 +47,13 @@ class SqfliteSessionRepository implements SessionRepository {
   }
 
   @override
+  Future<void> delete(String id) async {
+    // Cascade on foreign keys removes child exercises and sets, since the
+    // PRAGMA foreign_keys = ON is set in [AppDatabase._onConfigure].
+    await _db.delete('workout_sessions', where: 'id = ?', whereArgs: [id]);
+  }
+
+  @override
   Future<void> save(WorkoutSession session) async {
     await _db.transaction((txn) async {
       await txn.insert(
