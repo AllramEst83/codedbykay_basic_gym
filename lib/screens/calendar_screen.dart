@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../data/stores/calendar_store.dart';
 import '../data/stores/session_store.dart';
 import '../data/stores/workout_store.dart';
+import '../data/utils/routine_runner.dart';
 import '../data/utils/session_completion.dart';
 import '../models/workout.dart';
 import '../theme/app_colors.dart';
@@ -11,9 +12,8 @@ import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import '../widgets/category_pill.dart';
 import '../widgets/primary_pill_button.dart';
+import '../widgets/resume_session_banner.dart';
 import '../widgets/squish.dart';
-import 'active_session_screen.dart';
-import 'running_session_screen.dart';
 
 enum CalendarView { month, week, day }
 
@@ -108,6 +108,37 @@ class _CalendarScreenState extends State<CalendarScreen>
     });
   }
 
+  void _selectDate(DateTime date) {
+    setState(() {
+      _selectedDate = DateTime(date.year, date.month, date.day);
+      _displayMonth = DateTime(date.year, date.month);
+    });
+    CalendarStore.instance.ensureMonthLoaded(_displayMonth);
+  }
+
+  void _changeMonth(int delta) {
+    final next = DateTime(_displayMonth.year, _displayMonth.month + delta);
+    setState(() {
+      _displayMonth = next;
+      // If the selected date is no longer in the visible month, jump it to
+      // the first day so the "selected" highlight stays meaningful.
+      if (_selectedDate.year != next.year ||
+          _selectedDate.month != next.month) {
+        _selectedDate = DateTime(next.year, next.month, 1);
+      }
+    });
+    CalendarStore.instance.ensureMonthLoaded(_displayMonth);
+  }
+
+  void _jumpToToday() {
+    final now = DateTime.now();
+    setState(() {
+      _displayMonth = DateTime(now.year, now.month);
+      _selectedDate = DateTime(now.year, now.month, now.day);
+    });
+    CalendarStore.instance.ensureMonthLoaded(_displayMonth);
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -120,12 +151,18 @@ class _CalendarScreenState extends State<CalendarScreen>
           AppSpacing.lg + 80,
         ),
         children: [
+          const ResumeSessionBanner(),
           _SlideUp(
             animation: _delayedFade(0.0, 0.55),
             child: _Header(
               month: _displayMonth,
               view: _view,
               onViewChanged: (v) => setState(() => _view = v),
+              onPrevious: () => _changeMonth(-1),
+              onNext: () => _changeMonth(1),
+              onTitleTap: _jumpToToday,
+              showJumpToToday: _displayMonth.year != DateTime.now().year ||
+                  _displayMonth.month != DateTime.now().month,
             ),
           ),
           const SizedBox(height: AppSpacing.lg),
@@ -153,14 +190,14 @@ class _CalendarScreenState extends State<CalendarScreen>
       case CalendarView.month:
         return _CalendarCard(
           month: _displayMonth,
-          selectedDay: _selectedDate.day,
+          selectedDate: _selectedDate,
           onSelectDay: _selectDay,
           markerData: markers,
         );
       case CalendarView.week:
         return _WeekStrip(
           date: _selectedDate,
-          onSelectDay: (d) => _selectDay(d.day),
+          onSelectDay: _selectDate,
           markerData: markers,
         );
       case CalendarView.day:
@@ -178,25 +215,125 @@ class _Header extends StatelessWidget {
     required this.month,
     required this.view,
     required this.onViewChanged,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onTitleTap,
+    required this.showJumpToToday,
   });
 
   final DateTime month;
   final CalendarView view;
   final ValueChanged<CalendarView> onViewChanged;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+  final VoidCallback onTitleTap;
+  final bool showJumpToToday;
 
   @override
   Widget build(BuildContext context) {
     final title = DateFormat('MMMM yyyy').format(month);
     return Column(
       children: [
-        Text(
-          title,
-          textAlign: TextAlign.center,
-          style: AppTextStyles.displayLgMobile,
+        Row(
+          children: [
+            _MonthArrow(
+              icon: Icons.chevron_left_rounded,
+              onTap: onPrevious,
+              tooltip: 'Previous month',
+            ),
+            Expanded(
+              child: Squish(
+                onTap: onTitleTap,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.xs,
+                  ),
+                  child: Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: AppTextStyles.displayLgMobile,
+                  ),
+                ),
+              ),
+            ),
+            _MonthArrow(
+              icon: Icons.chevron_right_rounded,
+              onTap: onNext,
+              tooltip: 'Next month',
+            ),
+          ],
         ),
+        if (showJumpToToday) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Squish(
+            onTap: onTitleTap,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.sm,
+                vertical: AppSpacing.xs,
+              ),
+              decoration: BoxDecoration(
+                color: AppColors.primaryContainer,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.today_rounded,
+                    size: 14,
+                    color: AppColors.onPrimaryContainer,
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Text(
+                    'Jump to today',
+                    style: AppTextStyles.labelBold.copyWith(
+                      color: AppColors.onPrimaryContainer,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: AppSpacing.gutter),
         _ViewSegmentedControl(view: view, onChanged: onViewChanged),
       ],
+    );
+  }
+}
+
+class _MonthArrow extends StatelessWidget {
+  const _MonthArrow({
+    required this.icon,
+    required this.onTap,
+    required this.tooltip,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+  final String tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Squish(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: AppColors.surfaceContainerLow,
+            shape: BoxShape.circle,
+          ),
+          alignment: Alignment.center,
+          child: Icon(icon, color: AppColors.onSurface, size: 22),
+        ),
+      ),
     );
   }
 }
@@ -266,13 +403,13 @@ class _ViewSegmentedControl extends StatelessWidget {
 class _CalendarCard extends StatelessWidget {
   const _CalendarCard({
     required this.month,
-    required this.selectedDay,
+    required this.selectedDate,
     required this.onSelectDay,
     required this.markerData,
   });
 
   final DateTime month;
-  final int selectedDay;
+  final DateTime selectedDate;
   final ValueChanged<int> onSelectDay;
   final Map<int, List<WorkoutCategory>> markerData;
 
@@ -283,6 +420,9 @@ class _CalendarCard extends StatelessWidget {
     final firstDayOfMonth = DateTime(month.year, month.month, 1);
     final daysInMonth = DateUtils.getDaysInMonth(month.year, month.month);
     final leadingEmpty = firstDayOfMonth.weekday % 7; // Sunday-first
+    final today = DateTime.now();
+    final showSelected =
+        selectedDate.year == month.year && selectedDate.month == month.month;
 
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -322,11 +462,15 @@ class _CalendarCard extends StatelessWidget {
               if (i < leadingEmpty) return const SizedBox.shrink();
               final day = i - leadingEmpty + 1;
               final markers = markerData[day] ?? const [];
-              final isSelected = day == selectedDay;
+              final isSelected = showSelected && day == selectedDate.day;
+              final isToday = today.year == month.year &&
+                  today.month == month.month &&
+                  today.day == day;
               return _CalendarDay(
                 day: day,
                 markers: markers,
                 isSelected: isSelected,
+                isToday: isToday,
                 onTap: () => onSelectDay(day),
               );
             },
@@ -342,12 +486,14 @@ class _CalendarDay extends StatelessWidget {
     required this.day,
     required this.markers,
     required this.isSelected,
+    required this.isToday,
     required this.onTap,
   });
 
   final int day;
   final List<WorkoutCategory> markers;
   final bool isSelected;
+  final bool isToday;
   final VoidCallback onTap;
 
   Color _markerColor(WorkoutCategory c) {
@@ -371,8 +517,13 @@ class _CalendarDay extends StatelessWidget {
         decoration: BoxDecoration(
           color: isSelected
               ? AppColors.primary
-              : AppColors.surfaceContainerLow,
+              : (isToday
+                  ? AppColors.primaryContainer.withValues(alpha: 0.5)
+                  : AppColors.surfaceContainerLow),
           shape: BoxShape.circle,
+          border: !isSelected && isToday
+              ? Border.all(color: AppColors.primary, width: 1.5)
+              : null,
           boxShadow: isSelected
               ? [
                   BoxShadow(
@@ -391,7 +542,9 @@ class _CalendarDay extends StatelessWidget {
               style: AppTextStyles.labelBold.copyWith(
                 color: isSelected
                     ? AppColors.onPrimary
-                    : AppColors.onSurfaceVariant,
+                    : (isToday
+                        ? AppColors.primary
+                        : AppColors.onSurfaceVariant),
                 fontSize: 14,
               ),
             ),
@@ -760,27 +913,7 @@ class _WorkoutCard extends StatelessWidget {
     }
 
     if (!context.mounted) return;
-
-    if (workout.category == WorkoutCategory.cardio) {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => RunningSessionScreen(
-            routine: routine,
-            targetKm: routine.targetKm ?? 5.0,
-          ),
-        ),
-      );
-    } else if (routine.exercises.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'This routine has no exercises. Edit it from the Workouts tab first.',
-          ),
-        ),
-      );
-    } else {
-      await ActiveSessionScreen.start(context, routine);
-    }
+    await RoutineRunner.start(context, routine);
   }
 
   ({Color bg, Color glow, Color titleFg, Color labelFg, Color buttonBg, Color buttonFg})
