@@ -1,4 +1,4 @@
-import '../models/workout.dart';
+import '../../models/workout.dart';
 
 /// Static sample data used to populate screens.
 ///

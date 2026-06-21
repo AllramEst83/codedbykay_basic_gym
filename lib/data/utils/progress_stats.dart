@@ -1,6 +1,6 @@
 import 'package:intl/intl.dart';
 
-import '../models/workout.dart';
+import '../../models/workout.dart';
 
 /// Reference body mass (kg) for calorie estimates when the user has not
 /// provided weight.

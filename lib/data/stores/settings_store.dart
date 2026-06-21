@@ -2,8 +2,8 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
-import 'app_state.dart';
-import 'repositories/settings_repository.dart';
+import '../state/app_state.dart';
+import '../repositories/settings_repository.dart';
 
 /// Bridges [SettingsRepository] with the global [ValueNotifier]s used by the
 /// UI. All writes go through the notifiers AND back to the repository so they

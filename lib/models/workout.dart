@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 enum WorkoutCategory { strength, cardio, yoga }
@@ -46,6 +48,18 @@ class WorkoutSet {
   double? weightKg;
   int? reps;
   bool completed;
+
+  Map<String, dynamic> toJson() => {
+        'weightKg': weightKg,
+        'reps': reps,
+        'completed': completed,
+      };
+
+  static WorkoutSet fromJson(Map<String, dynamic> json) => WorkoutSet(
+        weightKg: json['weightKg'] as double?,
+        reps: json['reps'] as int?,
+        completed: json['completed'] as bool? ?? false,
+      );
 }
 
 /// One exercise inside a workout (e.g. "Barbell Bench Press").
@@ -56,6 +70,7 @@ class Exercise {
     required this.targetSets,
     required this.targetRepsLabel,
     required this.sets,
+    this.note,
   });
 
   final String name;
@@ -63,6 +78,29 @@ class Exercise {
   final int targetSets;
   final String targetRepsLabel;
   final List<WorkoutSet> sets;
+
+  /// Optional coaching note from the routine template or edited during session.
+  String? note;
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'muscleGroup': muscleGroup,
+        'targetSets': targetSets,
+        'targetRepsLabel': targetRepsLabel,
+        'note': note,
+        'sets': sets.map((s) => s.toJson()).toList(),
+      };
+
+  static Exercise fromJson(Map<String, dynamic> json) => Exercise(
+        name: json['name'] as String,
+        muscleGroup: json['muscleGroup'] as String,
+        targetSets: json['targetSets'] as int,
+        targetRepsLabel: json['targetRepsLabel'] as String,
+        note: json['note'] as String?,
+        sets: (json['sets'] as List)
+            .map((s) => WorkoutSet.fromJson(s as Map<String, dynamic>))
+            .toList(),
+      );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,6 +114,7 @@ class ExerciseTemplate {
     required this.name,
     required this.sets,
     required this.repsLabel,
+    this.note,
   });
 
   final String id;
@@ -85,12 +124,16 @@ class ExerciseTemplate {
   /// Human-readable reps description, e.g. "8-10" or "12-15".
   final String repsLabel;
 
+  /// Optional coaching note shown during an active session.
+  final String? note;
+
   Map<String, dynamic> toMap({required String routineId, required int orderIndex}) => {
         'id': id,
         'routine_id': routineId,
         'name': name,
         'sets': sets,
         'reps_label': repsLabel,
+        'note': note,
         'order_index': orderIndex,
       };
 
@@ -99,6 +142,7 @@ class ExerciseTemplate {
         'name': name,
         'sets': sets,
         'repsLabel': repsLabel,
+        'note': note,
       };
 
   static ExerciseTemplate fromMap(Map<String, dynamic> m) => ExerciseTemplate(
@@ -106,6 +150,7 @@ class ExerciseTemplate {
         name: m['name'] as String,
         sets: m['sets'] as int,
         repsLabel: m['reps_label'] as String,
+        note: m['note'] as String?,
       );
 }
 
@@ -298,6 +343,7 @@ class SessionExercise {
     required this.orderIndex,
     required this.sets,
     this.muscleGroup,
+    this.note,
   });
 
   final String id;
@@ -306,12 +352,14 @@ class SessionExercise {
   final String? muscleGroup;
   final int orderIndex;
   final List<SessionSet> sets;
+  final String? note;
 
   Map<String, dynamic> toMap() => {
         'id': id,
         'session_id': sessionId,
         'name': name,
         'muscle_group': muscleGroup,
+        'note': note,
         'order_index': orderIndex,
       };
 
@@ -321,6 +369,7 @@ class SessionExercise {
         'name': name,
         'muscleGroup': muscleGroup,
         'orderIndex': orderIndex,
+        'note': note,
         'sets': sets.map((s) => s.toJson()).toList(),
       };
 
@@ -334,6 +383,7 @@ class SessionExercise {
         name: m['name'] as String,
         muscleGroup: m['muscle_group'] as String?,
         orderIndex: m['order_index'] as int,
+        note: m['note'] as String?,
         sets: sets,
       );
 }
@@ -451,4 +501,72 @@ class WorkoutHistoryEntry {
   final int durationMinutes;
   final WorkoutCategory category;
   final String? imageUrl;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// In-progress session persistence
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A workout session that is currently in progress and needs to be persisted.
+class InProgressSession {
+  InProgressSession({
+    required this.id,
+    required this.routineId,
+    required this.routineName,
+    required this.routineCategory,
+    required this.startedAt,
+    required this.elapsedSeconds,
+    required this.currentExerciseIndex,
+    required this.selectedSetIndex,
+    required this.paused,
+    required this.exercises,
+    DateTime? updatedAt,
+  }) : updatedAt = updatedAt ?? DateTime.now();
+
+  final String id;
+  final String routineId;
+  final String routineName;
+  final WorkoutCategory routineCategory;
+  final DateTime startedAt;
+  final int elapsedSeconds;
+  final int currentExerciseIndex;
+  final int selectedSetIndex;
+  final bool paused;
+  final List<Exercise> exercises;
+  final DateTime updatedAt;
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'routine_id': routineId,
+        'routine_name': routineName,
+        'routine_category': routineCategory.name,
+        'started_at': startedAt.millisecondsSinceEpoch,
+        'elapsed_seconds': elapsedSeconds,
+        'current_exercise': currentExerciseIndex,
+        'selected_set': selectedSetIndex,
+        'paused': paused ? 1 : 0,
+        'exercises_json': jsonEncode(exercises.map((e) => e.toJson()).toList()),
+        'updated_at': updatedAt.millisecondsSinceEpoch,
+      };
+
+  static InProgressSession fromMap(Map<String, dynamic> m) {
+    final exercisesData = jsonDecode(m['exercises_json'] as String) as List;
+    return InProgressSession(
+      id: m['id'] as String,
+      routineId: m['routine_id'] as String,
+      routineName: m['routine_name'] as String,
+      routineCategory: WorkoutCategory.values.firstWhere(
+        (e) => e.name == m['routine_category'],
+      ),
+      startedAt: DateTime.fromMillisecondsSinceEpoch(m['started_at'] as int),
+      elapsedSeconds: m['elapsed_seconds'] as int,
+      currentExerciseIndex: m['current_exercise'] as int,
+      selectedSetIndex: m['selected_set'] as int,
+      paused: (m['paused'] as int) == 1,
+      exercises: exercisesData
+          .map((e) => Exercise.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(m['updated_at'] as int),
+    );
+  }
 }

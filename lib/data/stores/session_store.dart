@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-import '../models/workout.dart';
-import 'repositories/session_repository.dart';
+import '../../models/workout.dart';
+import '../repositories/session_repository.dart';
 
 /// In-memory cache for completed [WorkoutSession]s, backed by
 /// [SessionRepository].

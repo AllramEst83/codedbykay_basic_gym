@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../data/session_store.dart';
+import '../data/stores/session_store.dart';
 import '../models/workout.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';

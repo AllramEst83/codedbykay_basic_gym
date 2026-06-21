@@ -6,7 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../data/session_store.dart';
+import '../data/services/session_notification_service.dart';
+import '../data/stores/session_store.dart';
 import '../models/workout.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
@@ -203,13 +204,13 @@ class _LocationService {
 
   LocationSettings _buildLocationSettings(LocationAccuracy accuracy) {
     if (defaultTargetPlatform == TargetPlatform.android) {
+      // No ForegroundNotificationConfig here — flutter_foreground_task starts
+      // the foreground service with the location type, keeping the process alive
+      // and satisfying Android's background-location requirement while showing
+      // a single unified session notification.
       return AndroidSettings(
         accuracy: accuracy,
         distanceFilter: 0,
-        foregroundNotificationConfig: const ForegroundNotificationConfig(
-          notificationText: 'Run in progress',
-          notificationTitle: 'FlexFlow',
-        ),
       );
     }
     if (defaultTargetPlatform == TargetPlatform.iOS ||
@@ -381,6 +382,7 @@ class _RunningSessionScreenState extends State<RunningSessionScreen> {
   void dispose() {
     _ticker?.cancel();
     _locationService.stop();
+    SessionNotificationService.instance.stop();
     super.dispose();
   }
 
@@ -449,6 +451,16 @@ class _RunningSessionScreenState extends State<RunningSessionScreen> {
       if (_elapsed.inHours >= 4 && _distanceKm < 0.1) _autoStop();
     });
 
+    // Start foreground service with location type — this keeps the process
+    // alive and grants the location permission needed for geolocator to stream
+    // GPS fixes while the screen is locked, showing a single notification.
+    await SessionNotificationService.instance.start(
+      routineName: widget.routine.name,
+      category: widget.routine.category,
+      startedAt: _startedAt,
+      includesLocation: true,
+    );
+
     await _locationService.start();
 
     if (!mounted) return;
@@ -479,12 +491,14 @@ class _RunningSessionScreenState extends State<RunningSessionScreen> {
     } else {
       _locationService.resume();
     }
+    SessionNotificationService.instance.setPaused(_paused);
   }
 
   Future<void> _onStop() async {
     _ticker?.cancel();
     _ticker = null;
     _locationService.stop();
+    await SessionNotificationService.instance.stop();
 
     final completedAt = DateTime.now();
     final sessionId = 'run_${completedAt.millisecondsSinceEpoch}';

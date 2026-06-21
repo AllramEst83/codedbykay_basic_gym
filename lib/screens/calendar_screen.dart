@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../data/calendar_store.dart';
-import '../data/workout_store.dart';
+import '../data/stores/calendar_store.dart';
+import '../data/stores/session_store.dart';
+import '../data/stores/workout_store.dart';
+import '../data/utils/session_completion.dart';
 import '../models/workout.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
@@ -43,11 +45,15 @@ class _CalendarScreenState extends State<CalendarScreen>
     )..forward();
 
     CalendarStore.instance.addListener(_onStoreChanged);
+    SessionStore.instance.addListener(_onStoreChanged);
+    WorkoutStore.instance.addListener(_onStoreChanged);
   }
 
   @override
   void dispose() {
     CalendarStore.instance.removeListener(_onStoreChanged);
+    SessionStore.instance.removeListener(_onStoreChanged);
+    WorkoutStore.instance.removeListener(_onStoreChanged);
     _entranceController.dispose();
     super.dispose();
   }
@@ -634,6 +640,12 @@ class _SelectedDayWorkouts extends StatelessWidget {
           for (final w in workouts) ...[
             _WorkoutCard(
               workout: w,
+              date: date,
+              completionStatus: completionStatusForWorkout(
+                w,
+                SessionStore.instance.sessions,
+                date,
+              ),
               onRemove: () =>
                   CalendarStore.instance.removeWorkout(date, w.id),
             ),
@@ -682,11 +694,94 @@ class _EmptyDay extends StatelessWidget {
   }
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// Workout card
+// ────────────────────────────────────────────────────────────────────────
+
+class _CompletionBadge extends StatelessWidget {
+  const _CompletionBadge({required this.status});
+
+  final WorkoutCompletionStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final complete = status == WorkoutCompletionStatus.complete;
+    return Container(
+      width: 24,
+      height: 24,
+      decoration: BoxDecoration(
+        color: complete
+            ? AppColors.primary
+            : AppColors.tertiaryContainer,
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: Icon(
+        complete ? Icons.check_rounded : Icons.pending_actions_rounded,
+        size: complete ? 16 : 18,
+        color: complete
+            ? AppColors.onPrimary
+            : AppColors.onTertiaryContainer,
+      ),
+    );
+  }
+}
+
 class _WorkoutCard extends StatelessWidget {
-  const _WorkoutCard({required this.workout, required this.onRemove});
+  const _WorkoutCard({
+    required this.workout,
+    required this.date,
+    required this.completionStatus,
+    required this.onRemove,
+  });
 
   final Workout workout;
+  final DateTime date;
+  final WorkoutCompletionStatus? completionStatus;
   final VoidCallback onRemove;
+
+  Future<void> _startWorkout(BuildContext context) async {
+    final routine = WorkoutStore.instance.resolveRoutine(workout);
+
+    if (routine == null) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Could not find this routine. Remove and re-add it from the calendar.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (workout.routineId != routine.id) {
+      await CalendarStore.instance.relinkRoutine(date, workout, routine.id);
+    }
+
+    if (!context.mounted) return;
+
+    if (workout.category == WorkoutCategory.cardio) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => RunningSessionScreen(
+            routine: routine,
+            targetKm: routine.targetKm ?? 5.0,
+          ),
+        ),
+      );
+    } else if (routine.exercises.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'This routine has no exercises. Edit it from the Workouts tab first.',
+          ),
+        ),
+      );
+    } else {
+      await ActiveSessionScreen.start(context, routine);
+    }
+  }
 
   ({Color bg, Color glow, Color titleFg, Color labelFg, Color buttonBg, Color buttonFg})
       _palette() {
@@ -744,11 +839,19 @@ class _WorkoutCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        CategoryPill(
-                          label: workout.category.label,
-                          background: AppColors.surfaceContainerLowest
-                              .withValues(alpha: 0.6),
-                          foreground: p.labelFg,
+                        Row(
+                          children: [
+                            CategoryPill(
+                              label: workout.category.label,
+                              background: AppColors.surfaceContainerLowest
+                                  .withValues(alpha: 0.6),
+                              foreground: p.labelFg,
+                            ),
+                            if (completionStatus != null) ...[
+                              const SizedBox(width: AppSpacing.xs),
+                              _CompletionBadge(status: completionStatus!),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: AppSpacing.base),
                         Text(
@@ -824,45 +927,7 @@ class _WorkoutCard extends StatelessWidget {
                 background: p.buttonBg,
                 foreground: p.buttonFg,
                 height: 48,
-                onPressed: () {
-                  final routine = workout.routineId != null
-                      ? WorkoutStore.instance.allSortedByRecent
-                          .where((r) => r.id == workout.routineId)
-                          .firstOrNull
-                      : null;
-
-                  if (workout.category == WorkoutCategory.cardio) {
-                    // Build a stub Routine if none is found (orphaned entry)
-                    final r = routine ??
-                        Routine(
-                          id: workout.id,
-                          name: workout.title,
-                          category: workout.category,
-                          exercises: const [],
-                        );
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => RunningSessionScreen(
-                          routine: r,
-                          targetKm: r.targetKm ?? 5.0,
-                        ),
-                      ),
-                    );
-                  } else {
-                    final r = routine ??
-                        Routine(
-                          id: workout.id,
-                          name: workout.title,
-                          category: workout.category,
-                          exercises: const [],
-                        );
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => ActiveSessionScreen(routine: r),
-                      ),
-                    );
-                  }
-                },
+                onPressed: () => _startWorkout(context),
               ),
             ],
           ),

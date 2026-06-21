@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-import '../models/workout.dart';
-import 'repositories/routine_repository.dart';
+import '../../models/workout.dart';
+import '../repositories/routine_repository.dart';
 
 /// In-memory cache for user [Routine]s, backed by [RoutineRepository].
 ///
@@ -32,6 +32,28 @@ class WorkoutStore extends ChangeNotifier {
 
   /// All routines sorted by most recently updated first.
   List<Routine> get allSortedByRecent => List.of(_routines);
+
+  /// Finds a [Routine] for a calendar [Workout].
+  ///
+  /// Tries [Workout.routineId] first, then falls back to matching [Workout.title]
+  /// and [Workout.category] when the link is missing or stale (e.g. after a
+  /// routine was deleted and recreated).
+  Routine? resolveRoutine(Workout workout) {
+    if (workout.routineId != null) {
+      final byId =
+          _routines.where((r) => r.id == workout.routineId).firstOrNull;
+      if (byId != null) return byId;
+    }
+    return _routines
+        .where(
+          (r) => r.name == workout.title && r.category == workout.category,
+        )
+        .firstOrNull;
+  }
+
+  /// Returns the routine with [id], or null if it is not in the cache.
+  Routine? routineById(String id) =>
+      _routines.where((r) => r.id == id).firstOrNull;
 
   /// Persists [routine] and adds it to the cache.
   Future<void> addRoutine(Routine routine) async {

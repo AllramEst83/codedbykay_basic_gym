@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-import '../models/workout.dart';
-import 'repositories/schedule_repository.dart';
+import '../../models/workout.dart';
+import '../repositories/schedule_repository.dart';
 
 /// In-memory cache for scheduled [Workout]s keyed by local day, backed by
 /// [ScheduleRepository].
@@ -84,6 +84,36 @@ class CalendarStore extends ChangeNotifier {
     if (list == null) return;
     list.removeWhere((w) => w.id == workoutId);
     if (list.isEmpty) _schedule.remove(key);
+    notifyListeners();
+  }
+
+  /// Updates [workout]'s [Workout.routineId] when a stale calendar link is repaired.
+  Future<void> relinkRoutine(
+    DateTime date,
+    Workout workout,
+    String routineId,
+  ) async {
+    if (workout.routineId == routineId) return;
+
+    final updated = Workout(
+      id: workout.id,
+      routineId: routineId,
+      title: workout.title,
+      category: workout.category,
+      durationMinutes: workout.durationMinutes,
+      scheduledDate: workout.scheduledDate,
+      createdAt: workout.createdAt,
+      updatedAt: DateTime.now(),
+    );
+
+    await _repo.schedule(updated);
+
+    final key = _dayKey(date);
+    final list = _schedule[key];
+    if (list == null) return;
+    final index = list.indexWhere((w) => w.id == workout.id);
+    if (index == -1) return;
+    list[index] = updated;
     notifyListeners();
   }
 }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../data/workout_store.dart';
+import '../data/stores/workout_store.dart';
 import '../models/workout.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
@@ -54,6 +54,7 @@ class _CreateWorkoutScreenState extends State<CreateWorkoutScreen> {
         draft.nameController.text = e.name;
         draft.setsController.text = '${e.sets}';
         draft.repsController.text = e.repsLabel;
+        draft.noteController.text = e.note ?? '';
         _exercises.add(draft);
       }
     } else {
@@ -93,15 +94,21 @@ class _CreateWorkoutScreenState extends State<CreateWorkoutScreen> {
     }
 
     final now = DateTime.now().millisecondsSinceEpoch;
+    final edit = widget.editRoutine;
     final exercises = _isCardio
         ? <ExerciseTemplate>[]
         : [
             for (var i = 0; i < _exercises.length; i++)
               ExerciseTemplate(
-                id: 'ex_${now}_$i',
+                id: edit != null && i < edit.exercises.length
+                    ? edit.exercises[i].id
+                    : 'ex_${now}_$i',
                 name: _exercises[i].nameController.text.trim(),
                 sets: int.tryParse(_exercises[i].setsController.text) ?? 1,
                 repsLabel: _exercises[i].repsController.text.trim(),
+                note: _exercises[i].noteController.text.trim().isEmpty
+                    ? null
+                    : _exercises[i].noteController.text.trim(),
               ),
           ];
 
@@ -109,7 +116,6 @@ class _CreateWorkoutScreenState extends State<CreateWorkoutScreen> {
         ? double.tryParse(_distanceController.text.trim())
         : null;
 
-    final edit = widget.editRoutine;
     if (edit != null) {
       WorkoutStore.instance.updateRoutine(
         Routine(
@@ -232,11 +238,13 @@ class _ExerciseDraft {
   final nameController = TextEditingController();
   final setsController = TextEditingController(text: '3');
   final repsController = TextEditingController(text: '10');
+  final noteController = TextEditingController();
 
   void dispose() {
     nameController.dispose();
     setsController.dispose();
     repsController.dispose();
+    noteController.dispose();
   }
 }
 
@@ -578,6 +586,13 @@ class _ExerciseRow extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: AppSpacing.base),
+          TextFormField(
+            controller: draft.noteController,
+            textCapitalization: TextCapitalization.sentences,
+            maxLines: 2,
+            decoration: _inputDecoration('Note (optional)'),
           ),
         ],
       ),

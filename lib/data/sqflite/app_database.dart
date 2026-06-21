@@ -14,7 +14,7 @@ class AppDatabase {
   /// instead of accessing this directly.
   Database get db => _db;
 
-  static const int _version = 2;
+  static const int _version = 4;
 
   /// Opens (and if necessary creates) the SQLite database file in the app's
   /// documents directory, which survives app updates.
@@ -65,6 +65,7 @@ class AppDatabase {
         name         TEXT NOT NULL,
         sets         INTEGER NOT NULL,
         reps_label   TEXT NOT NULL,
+        note         TEXT,
         order_index  INTEGER NOT NULL
       )
     ''');
@@ -122,6 +123,7 @@ class AppDatabase {
         session_id    TEXT NOT NULL REFERENCES workout_sessions(id) ON DELETE CASCADE,
         name          TEXT NOT NULL,
         muscle_group  TEXT,
+        note          TEXT,
         order_index   INTEGER NOT NULL
       )
     ''');
@@ -146,6 +148,22 @@ class AppDatabase {
       CREATE INDEX idx_session_sets_exercise
         ON session_sets(exercise_id)
     ''');
+
+    await db.execute('''
+      CREATE TABLE in_progress_sessions (
+        id                TEXT PRIMARY KEY,
+        routine_id        TEXT NOT NULL,
+        routine_name      TEXT NOT NULL,
+        routine_category  TEXT NOT NULL,
+        started_at        INTEGER NOT NULL,
+        elapsed_seconds   INTEGER NOT NULL DEFAULT 0,
+        current_exercise  INTEGER NOT NULL DEFAULT 0,
+        selected_set      INTEGER NOT NULL DEFAULT 0,
+        paused            INTEGER NOT NULL DEFAULT 0,
+        exercises_json    TEXT NOT NULL,
+        updated_at        INTEGER NOT NULL
+      )
+    ''');
   }
 
   /// Versioned migrations.
@@ -158,6 +176,31 @@ class AppDatabase {
       await db.execute(
         'ALTER TABLE routines ADD COLUMN target_km REAL',
       );
+    }
+    if (oldVersion < 3) {
+      await db.execute(
+        'ALTER TABLE exercise_templates ADD COLUMN note TEXT',
+      );
+      await db.execute(
+        'ALTER TABLE session_exercises ADD COLUMN note TEXT',
+      );
+    }
+    if (oldVersion < 4) {
+      await db.execute('''
+        CREATE TABLE in_progress_sessions (
+          id                TEXT PRIMARY KEY,
+          routine_id        TEXT NOT NULL,
+          routine_name      TEXT NOT NULL,
+          routine_category  TEXT NOT NULL,
+          started_at        INTEGER NOT NULL,
+          elapsed_seconds   INTEGER NOT NULL DEFAULT 0,
+          current_exercise  INTEGER NOT NULL DEFAULT 0,
+          selected_set      INTEGER NOT NULL DEFAULT 0,
+          paused            INTEGER NOT NULL DEFAULT 0,
+          exercises_json    TEXT NOT NULL,
+          updated_at        INTEGER NOT NULL
+        )
+      ''');
     }
   }
 }

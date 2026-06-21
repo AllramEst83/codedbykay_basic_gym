@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../data/progress_stats.dart';
-import '../data/session_store.dart';
+import '../data/stores/session_store.dart';
+import '../data/utils/progress_stats.dart';
 import '../models/workout.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';

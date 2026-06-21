@@ -1,0 +1,340 @@
+---
+alwaysApply: true
+---
+
+# FlexFlow — Supabase Auth & Integration Best Practices
+
+Applies to all code in `supabase/` and any Flutter code that touches auth, remote data, or RLS.
+When uncertain about anything, consult the [Supabase Auth docs](https://supabase.com/docs/guides/auth) or the NotebookLM notebook (UUID `3696ed17-acaf-4931-9f6a-a5d69e27cd01`).
+
+**Target platforms: Android (primary) and Web. iOS is out of scope — do not add iOS-specific setup without explicit instruction.**
+
+---
+
+## Auth provider
+
+FlexFlow uses **Google OAuth exclusively**. Never introduce another provider or email/password auth without explicit discussion.
+
+---
+
+## Google Sign-In — platform-specific flows
+
+The sign-in method differs by platform. **Never use the wrong method for a platform.**
+
+### Android — native `signInWithIdToken`
+
+Use `google_sign_in` to get an OIDC ID token from the native account picker, then pass it to Supabase. This avoids opening a browser.
+
+```dart
+// ✅ Android
+final googleUser = await GoogleSignIn(
+  serverClientId: '<WEB_CLIENT_ID>',
+).signIn();
+final googleAuth = await googleUser!.authentication;
+
+await supabase.auth.signInWithIdToken(
+  provider: OAuthProvider.google,
+  idToken: googleAuth.idToken!,
+  accessToken: googleAuth.accessToken,
+);
+```
+
+**Dashboard requirements (Android):**
+- Add the Web Client ID under Authentication → Providers → Google.
+- Register an Android Client ID in Google Cloud Console (package name + SHA-1 fingerprint).
+
+### Web — `signInWithOAuth` redirect
+
+`google_sign_in`'s native flow is not available on Flutter Web. Use the OAuth redirect flow instead.
+
+```dart
+// ✅ Web
+await supabase.auth.signInWithOAuth(
+  OAuthProvider.google,
+  redirectTo: 'https://yourapp.com/auth/callback', // deployed URL
+  // For local dev: 'http://localhost:PORT/auth/callback'
+);
+```
+
+Add all redirect URLs (prod and dev) to the Supabase Dashboard's **Redirect URLs** allow-list.
+
+### Sign out (all platforms)
+
+```dart
+// ✅ Sign out
+await supabase.auth.signOut();
+
+// ❌ Never implement email/password auth
+supabase.auth.signInWithPassword(...); // FORBIDDEN
+```
+
+---
+
+## Deep links
+
+Deep links are used on **Android** to route the user back into the app after a web-based OAuth fallback flow.
+
+- Register `io.supabase.flexflow://login-callback/` in the Supabase Dashboard Redirect URL allow-list.
+- Add an intent filter in `android/app/src/main/AndroidManifest.xml` for the `io.supabase.flexflow` scheme.
+- Add `<uses-permission android:name="android.permission.INTERNET" />` for production Android builds.
+- `supabase_flutter` handles deep-link routing internally via `app_links` — do not add a second handler.
+
+**Web** uses real HTTPS redirect URLs — no custom scheme or deep-link config required.
+
+**iOS** deep-link setup (`Info.plist`) is not needed until iOS support is added — do not implement it proactively.
+
+---
+
+## API keys — use new format
+
+Legacy `anon` / `service_role` keys are **deprecated at end of 2026**. Always use the new key names.
+
+| Key | Format | Where |
+|---|---|---|
+| Publishable key | `sb_publishable_xxx` | Flutter client — safe to bundle |
+| Secret key | `sb_secret_xxx` | Edge Functions / server-side **only** |
+
+The secret key bypasses RLS entirely — treat it as a root credential. Never expose it to the Flutter client or commit it to source control.
+
+```dart
+// ✅ Initialize with the publishable key
+await Supabase.initialize(
+  url: const String.fromEnvironment('SUPABASE_URL'),
+  anonKey: const String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY'),
+  localStorage: const SecureStorage(), // see secure storage section
+);
+
+// ✅ Access the singleton anywhere
+final supabase = Supabase.instance.client;
+```
+
+Pass keys via `--dart-define` — never hardcode them in source files.
+
+---
+
+## Secure token storage
+
+Storage behaviour differs by platform:
+
+| Platform | Default | Production |
+|---|---|---|
+| Android | `SharedPreferences` | `flutter_secure_storage` (Android Keystore) |
+| Web | Browser `localStorage` | Default is acceptable — no native keychain on web |
+
+For Android production, override with a custom `LocalStorage` backed by `flutter_secure_storage`:
+
+```dart
+// ✅ Android secure storage
+class SecureStorage extends LocalStorage {
+  final _storage = const FlutterSecureStorage();
+
+  @override Future<void> initialize() async {}
+
+  @override Future<String?> accessToken() =>
+      _storage.read(key: supabaseAccessTokenKey);
+
+  @override Future<bool> hasAccessToken() =>
+      _storage.containsKey(key: supabaseAccessTokenKey);
+
+  @override Future<void> persistSession(String s) =>
+      _storage.write(key: supabaseAccessTokenKey, value: s);
+
+  @override Future<void> removePersistedSession() =>
+      _storage.delete(key: supabaseAccessTokenKey);
+}
+```
+
+---
+
+## Token handling (Flutter client)
+
+The SDK attaches the JWT to every Supabase request automatically. Do not write custom refresh logic.
+
+```dart
+// ✅ Read the live token when forwarding to an Edge Function
+final token = supabase.auth.currentSession?.accessToken;
+if (token == null) throw Exception('User not authenticated');
+headers['Authorization'] = 'Bearer $token';
+
+// ❌ Never cache the JWT string across async gaps
+// ❌ Never hardcode a JWT
+const token = 'eyJhb...'; // FORBIDDEN
+```
+
+---
+
+## Auth state in the Flutter UI
+
+```dart
+// ✅ Listen to sign-in / sign-out / token refresh
+supabase.auth.onAuthStateChange.listen((data) {
+  final session = data.session;
+  // Navigate based on session != null
+});
+
+// ✅ Guard data access
+if (supabase.auth.currentUser == null) {
+  // Redirect to sign-in; abort any data fetch
+  return;
+}
+
+// ✅ Session restore on cold start (in main, before runApp)
+final session = supabase.auth.currentSession;
+```
+
+---
+
+## Token verification (Edge Functions)
+
+Every protected Edge Function **must** call `getAuthenticatedUser(req)` from `supabase/ref/auth.ts` as its first action. It verifies the JWT server-side via `supabase.auth.getUser(token)` and throws `AuthenticationError` on any failure.
+
+```typescript
+// ✅ Always verify first
+const user = await getAuthenticatedUser(req);
+// user.userId and user.email are now trustworthy
+
+// ❌ Never trust user IDs from the request body
+const { userId } = await req.json(); // DO NOT use for auth decisions
+```
+
+---
+
+## Row Level Security (RLS)
+
+Every user-owned Supabase table **must** have RLS enabled.
+
+### Enable RLS
+
+```sql
+-- Tables created in the Dashboard have RLS enabled by default.
+-- Tables created via raw SQL need this explicitly:
+ALTER TABLE workout_sessions ENABLE ROW LEVEL SECURITY;
+```
+
+### Policy template (four operations)
+
+```sql
+-- SELECT
+CREATE POLICY "select_own" ON workout_sessions
+  FOR SELECT TO authenticated
+  USING ((select auth.uid()) = user_id);
+
+-- INSERT
+CREATE POLICY "insert_own" ON workout_sessions
+  FOR INSERT TO authenticated
+  WITH CHECK ((select auth.uid()) = user_id);
+
+-- UPDATE (requires both USING and WITH CHECK to prevent ownership reassignment)
+CREATE POLICY "update_own" ON workout_sessions
+  FOR UPDATE TO authenticated
+  USING  ((select auth.uid()) = user_id)
+  WITH CHECK ((select auth.uid()) = user_id);
+
+-- DELETE
+CREATE POLICY "delete_own" ON workout_sessions
+  FOR DELETE TO authenticated
+  USING ((select auth.uid()) = user_id);
+```
+
+### auth.uid() vs auth.jwt()
+
+- `auth.uid()` — returns the user's UUID; use for row-ownership checks.
+- `auth.jwt()` — returns the full JWT JSON; use for advanced checks (MFA level, team membership).
+- Always use `raw_app_meta_data` for security decisions — users cannot modify it.
+- Never use `raw_user_meta_data` in auth policies — authenticated users can update it freely.
+
+```sql
+-- ✅ Check MFA (AAL2)
+auth.jwt() ->> 'aal' = 'aal2'
+
+-- ✅ Check team membership from app metadata
+auth.jwt() -> 'app_metadata' -> 'teams' ? team_id::text
+```
+
+### RLS performance rules
+
+1. **Wrap helpers in `SELECT`:** write `(select auth.uid())`, not `auth.uid()`. The `SELECT` wrapper creates an `initPlan` that caches the result once per statement, not once per row.
+2. **Always specify `TO authenticated`** on policies. Omitting it forces Postgres to evaluate the policy for anonymous requests too.
+3. **Index `user_id`** on every user-owned table.
+4. **Mirror RLS filters in app code** — don't rely purely on RLS to narrow large queries. An explicit `.eq('user_id', userId)` gives Postgres a better query plan.
+5. **Views** — create with `security_invoker = true` (Postgres 15+). Default views run as the `postgres` role and bypass RLS entirely.
+
+---
+
+## Edge Function client setup
+
+Use the factory helpers from `supabase/ref/supabase.ts`:
+
+```typescript
+// Admin operations (bypasses RLS) — use only when elevated privilege is required
+const supabase = getSupabaseClient();
+
+// Act as the calling user (respects RLS) — prefer this for user data
+const supabase = createSupabaseClientWithAuth(token);
+```
+
+---
+
+## CORS (Edge Functions)
+
+Handle `OPTIONS` preflight before any other logic, and attach CORS headers to every response.
+
+```typescript
+// ✅ Always first in the handler
+if (req.method === 'OPTIONS') {
+  return handleCorsPreflightRequest(req);
+}
+
+// ✅ Attach on every response
+return jsonResponse(data, { status: 200, headers: getCorsHeaders(req) });
+```
+
+Use the `ALLOWED_ORIGINS` env var to restrict origins in production. Never leave `*` in a production function unless the endpoint is intentionally public.
+
+---
+
+## Error handling (Edge Functions)
+
+Use typed error classes from `ref/errors.ts`. Never swallow errors silently.
+
+```typescript
+// ✅ Throw typed errors
+throw new AuthenticationError('Invalid or expired token'); // → 401
+throw new BadRequestError('Missing required field');       // → 400
+throw new ForbiddenError('You do not own this resource');  // → 403
+throw new NotFoundError('Session not found');              // → 404
+
+// ✅ Top-level catch
+} catch (err) {
+  if (err instanceof HttpError) {
+    return jsonResponse({ error: err.message }, { status: err.status, headers: getCorsHeaders(req) });
+  }
+  console.error('Unhandled:', err);
+  return jsonResponse({ error: 'Internal server error' }, { status: 500, headers: getCorsHeaders(req) });
+}
+```
+
+---
+
+## Sync (sqflite ↔ Supabase)
+
+- Write locally first (sqflite on Android) so the UI never blocks on network.
+- Mirror to Supabase in the background via the repository layer.
+- Use `updated_at` (Unix ms) for last-write-wins conflict resolution.
+- Honour soft-deletes (`deleted_at`) — never hard-delete rows that have been synced.
+- All Supabase tables must include `user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE` on user-owned data.
+
+> ⚠️ **`sqflite` does not support Flutter Web.** Before implementing the web target, the local storage layer must be replaced or made conditional. Options: Drift (with SQLite WASM on web), Sembast, or direct Supabase reads on web with no local cache. The `RepositoryProvider` abstraction is already in place — the change is contained to the data layer. Do not add web support to sqflite-based code; surface the decision to the developer first.
+
+---
+
+## Reference files
+
+| File | Purpose |
+|---|---|
+| `supabase/ref/auth.ts` | Server-side JWT verification |
+| `supabase/ref/supabase.ts` | Supabase client factory (service role + user-scoped) |
+| `supabase/ref/cors.ts` | CORS headers and preflight |
+| `supabase/ref/errors.ts` | Typed HTTP errors and `jsonResponse` |
+| `supabase/ref/crypto.ts` | AES-256-GCM encrypt/decrypt |
+| `supabase/README.md` | Architecture overview, sync strategy, env var reference |

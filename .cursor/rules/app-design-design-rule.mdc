@@ -1,0 +1,88 @@
+---
+description: FlexFlow Kinetic Pastel design system — tokens, components, and UI patterns
+globs: lib/**/*.dart
+alwaysApply: false
+---
+
+# FlexFlow — Kinetic Pastel Design
+
+Full spec: [`design/DESIGN.md`](../../DESIGN.md). Flutter tokens live in `lib/theme/`; shared widgets in `lib/widgets/`.
+
+## Brand
+
+Optimistic, soft-tactile fitness UI. Candy-coated pastels, heavy whitespace, oversized pill controls, squishy tap feedback. **Not** hardcore gym aesthetics.
+
+## Never hardcode design values
+
+```dart
+// ✅ GOOD
+padding: const EdgeInsets.all(AppSpacing.gutter),
+style: AppTextStyles.headlineMd,
+color: AppColors.primary,
+borderRadius: BorderRadius.circular(AppRadius.card),
+
+// ❌ BAD
+padding: const EdgeInsets.all(16),
+style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+color: Color(0xFF006C52),
+```
+
+Use `AppColors`, `AppTextStyles`, `AppSpacing`, `AppRadius`, and `AppTheme.light()` / `AppTheme.dark()`.
+
+## Typography
+
+- **Plus Jakarta Sans** — display, headlines, labels, stat numbers
+- **Be Vietnam Pro** — body copy
+- Weights/reps/times/duration **must** use `AppTextStyles.statNumber`, never body styles
+- App bar brand: `headlineMd` ~22px in `AppColors.primary`
+
+## Color semantics
+
+| Role | Use |
+|------|-----|
+| `primary` (Mint) | Go actions, start/finish, brand accent |
+| `primaryContainer` | Cardio cards, nav active pill |
+| `secondaryContainer` | Strength cards, chips, toggle off |
+| `tertiaryContainer` | Rest timers, yoga, alerts |
+| `surfaceContainerLowest` | Cards, list rows |
+
+**Category mapping:** Gym → `secondaryContainer` · Cardio → `primaryContainer` · Yoga → `tertiaryContainer`
+
+## Shape & spacing
+
+- Base unit: **8px** — all spacing via `AppSpacing`
+- **Pills everywhere** — buttons, chips, nav active state (`AppRadius.pill`)
+- Cards: `AppRadius.card` (24px). Inputs/set rows: `AppRadius.md` (16px)
+- Touch targets: 48px min, 64px for primary actions
+
+## Interaction
+
+- Wrap tappable elements in **`Squish`** (scale 0.96–0.98 on press) — never shadow-based press states
+- Tonal surface shifts for depth; shadows only on FAB / finish button / occasional hover
+- Glassmorphism **only** on `FlexTopBar` and `FlexBottomNav` (20px blur, 85% opacity)
+
+## Shared components — reuse before reinventing
+
+| Widget | Use |
+|--------|-----|
+| `Squish` | All interactive press feedback |
+| `PrimaryPillButton` | Primary/secondary CTAs |
+| `CategoryPill` | Muscle groups, workout tags |
+| `FlexTopBar` | Shell top chrome |
+| `FlexBottomNav` | Shell bottom nav (4 tabs) |
+
+## Screen rules
+
+- **Shell screens** (Workouts, Calendar, Progress, Settings): `FlexTopBar` + `FlexBottomNav` in `HomeShell`
+- **Active session**: contextual header (pause · title + timer · settings); bottom nav **replaced** by Add Note + Finish Workout bar
+- **Splash**: gradient mesh, floating icon, `displayLgMobile` wordmark
+- Scrollable bodies need bottom padding to clear FAB/nav bar
+
+## Do / don't summary
+
+- ✅ Material 3 color roles via `AppColors`
+- ✅ `google_fonts` via `AppTextStyles` (already configured)
+- ✅ Private widget classes for screen sections (`_Header`, `_SetRow`)
+- ❌ Inline `Color(...)`, raw `TextStyle`, magic-number padding/radii
+- ❌ Sharp corners on buttons or cards
+- ❌ Drop shadows as default press/active feedback

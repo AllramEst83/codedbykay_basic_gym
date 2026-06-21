@@ -2,7 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../data/session_store.dart';
+import '../data/providers/repository_provider.dart';
+import '../data/repositories/in_progress_session_repository.dart';
+import '../data/services/session_notification_service.dart';
+import '../data/stores/session_store.dart';
 import '../models/workout.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
@@ -15,9 +18,31 @@ class ActiveSessionScreen extends StatefulWidget {
   const ActiveSessionScreen({
     super.key,
     required this.routine,
+    this.restoredSession,
   });
 
   final Routine routine;
+  final InProgressSession? restoredSession;
+
+  /// Checks if an in-progress session exists for this routine and navigates
+  /// to either resume or start fresh.
+  static Future<void> start(
+    BuildContext context,
+    Routine routine,
+  ) async {
+    final repo = RepositoryProvider.instance.inProgressSessions;
+    final existing = await repo.getByRoutineId(routine.id);
+    if (!context.mounted) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ActiveSessionScreen(
+          routine: routine,
+          restoredSession: existing,
+        ),
+      ),
+    );
+  }
 
   @override
   State<ActiveSessionScreen> createState() => _ActiveSessionScreenState();
@@ -26,14 +51,63 @@ class ActiveSessionScreen extends StatefulWidget {
 class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
   late final List<Exercise> _exercises;
   late int _currentExerciseIndex;
+  late int _selectedSetIndex;
   Timer? _ticker;
+  Timer? _saveTimer;
   Duration _elapsed = Duration.zero;
   bool _paused = false;
   late final DateTime _startedAt;
+  late final InProgressSessionRepository _repo;
+  late final String _sessionId;
 
   @override
   void initState() {
     super.initState();
+    _repo = RepositoryProvider.instance.inProgressSessions;
+    
+    if (widget.restoredSession != null) {
+      _restoreSession(widget.restoredSession!);
+    } else {
+      _startFreshSession();
+    }
+
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_paused) return;
+      setState(() => _elapsed += const Duration(seconds: 1));
+    });
+
+    _saveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      _saveInProgressSession();
+    });
+
+    // Start the foreground service so the session stays alive when the phone
+    // is locked. Fire-and-forget; session is already persisted every 5 s.
+    _startBackgroundService();
+  }
+
+  void _startBackgroundService() {
+    final paused = _paused;
+    SessionNotificationService.instance.start(
+      routineName: widget.routine.name,
+      category: widget.routine.category,
+      startedAt: _startedAt,
+    ).then((_) {
+      if (paused) SessionNotificationService.instance.setPaused(true);
+    }).catchError((_) {});
+  }
+
+  void _restoreSession(InProgressSession session) {
+    _sessionId = session.id;
+    _startedAt = session.startedAt;
+    _elapsed = Duration(seconds: session.elapsedSeconds);
+    _paused = session.paused;
+    _exercises = session.exercises;
+    _currentExerciseIndex = session.currentExerciseIndex;
+    _selectedSetIndex = session.selectedSetIndex;
+  }
+
+  void _startFreshSession() {
+    _sessionId = 'session_${DateTime.now().millisecondsSinceEpoch}';
     _startedAt = DateTime.now();
     _exercises = widget.routine.exercises.map((t) {
       return Exercise(
@@ -41,6 +115,7 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
         muscleGroup: widget.routine.category.label,
         targetSets: t.sets,
         targetRepsLabel: '${t.sets} Sets x ${t.repsLabel} Reps',
+        note: t.note,
         sets: List.generate(
           t.sets,
           (_) => WorkoutSet(weightKg: null, reps: null),
@@ -48,19 +123,72 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
       );
     }).toList();
     _currentExerciseIndex = 0;
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_paused) return;
-      setState(() => _elapsed += const Duration(seconds: 1));
-    });
+    _selectedSetIndex = _exercises.isEmpty
+        ? 0
+        : _firstIncompleteSetIndex(_exercises.first);
+  }
+
+  Future<void> _saveInProgressSession() async {
+    if (!mounted) return;
+    
+    try {
+      final session = InProgressSession(
+        id: _sessionId,
+        routineId: widget.routine.id,
+        routineName: widget.routine.name,
+        routineCategory: widget.routine.category,
+        startedAt: _startedAt,
+        elapsedSeconds: _elapsed.inSeconds,
+        currentExerciseIndex: _currentExerciseIndex,
+        selectedSetIndex: _selectedSetIndex,
+        paused: _paused,
+        exercises: _exercises,
+      );
+      await _repo.save(session);
+    } catch (e) {
+      // Silent fail for now - we'll handle errors better later
+    }
+  }
+
+  Future<void> _deleteInProgressSession() async {
+    try {
+      await _repo.delete(widget.routine.id);
+    } catch (e) {
+      // Silent fail
+    }
+  }
+
+  int _firstIncompleteSetIndex(Exercise exercise) {
+    if (exercise.sets.isEmpty) return 0;
+    final idx = exercise.sets.indexWhere((s) => !s.completed);
+    return idx >= 0 ? idx : exercise.sets.length - 1;
+  }
+
+  bool get _hasExercises => _exercises.isNotEmpty;
+
+  bool get _allSetsCompleted {
+    if (_exercises.isEmpty) return true;
+    for (final exercise in _exercises) {
+      if (exercise.sets.any((set) => !set.completed)) return false;
+    }
+    return true;
   }
 
   @override
   void dispose() {
     _ticker?.cancel();
+    _saveTimer?.cancel();
+    SessionNotificationService.instance.stop();
+    if (!_allSetsCompleted) {
+      _saveInProgressSession();
+    }
     super.dispose();
   }
 
-  Exercise get _currentExercise => _exercises[_currentExerciseIndex];
+  Exercise get _currentExercise {
+    assert(_hasExercises, 'No exercises in this routine');
+    return _exercises[_currentExerciseIndex];
+  }
 
   String _formatDuration(Duration d) {
     String two(int n) => n.toString().padLeft(2, '0');
@@ -72,21 +200,81 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
 
   void _completeActiveSet() {
     setState(() {
-      final idx = _currentExercise.sets.indexWhere((s) => !s.completed);
-      if (idx >= 0) _currentExercise.sets[idx].completed = true;
+      final idx = _selectedSetIndex;
+      if (idx < 0 || idx >= _currentExercise.sets.length) return;
+      _currentExercise.sets[idx].completed = true;
+      final next = _currentExercise.sets.indexWhere((s) => !s.completed);
+      if (next >= 0) _selectedSetIndex = next;
     });
+  }
+
+  void _selectSet(int index) {
+    setState(() => _selectedSetIndex = index);
+  }
+
+  void _goToExercise(int index) {
+    if (index < 0 || index >= _exercises.length) return;
+    setState(() {
+      _currentExerciseIndex = index;
+      _selectedSetIndex = _firstIncompleteSetIndex(_currentExercise);
+    });
+  }
+
+  Future<void> _editExerciseNote() async {
+    final controller = TextEditingController(text: _currentExercise.note ?? '');
+    
+    try {
+      final saved = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Exercise Note', style: AppTextStyles.headlineMd),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLines: 4,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(
+              hintText: 'Add a note for this exercise…',
+              filled: true,
+              fillColor: AppColors.surfaceContainerLowest,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      );
+      
+      if (saved == true && mounted) {
+        final text = controller.text.trim();
+        setState(() => _currentExercise.note = text.isEmpty ? null : text);
+      }
+    } finally {
+      controller.dispose();
+    }
   }
 
   Future<void> _finishWorkout() async {
     _ticker?.cancel();
+    _saveTimer?.cancel();
+    await SessionNotificationService.instance.stop();
     final completedAt = DateTime.now();
-    final sessionId =
-        'session_${completedAt.millisecondsSinceEpoch}';
 
     final sessionExercises = <SessionExercise>[];
     for (var ei = 0; ei < _exercises.length; ei++) {
       final ex = _exercises[ei];
-      final exId = '${sessionId}_ex$ei';
+      final exId = '${_sessionId}_ex$ei';
       final sets = <SessionSet>[];
       for (var si = 0; si < ex.sets.length; si++) {
         final ws = ex.sets[si];
@@ -101,16 +289,17 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
       }
       sessionExercises.add(SessionExercise(
         id: exId,
-        sessionId: sessionId,
+        sessionId: _sessionId,
         name: ex.name,
         muscleGroup: ex.muscleGroup,
         orderIndex: ei,
+        note: ex.note,
         sets: sets,
       ));
     }
 
     final session = WorkoutSession(
-      id: sessionId,
+      id: _sessionId,
       routineId: widget.routine.id,
       title: widget.routine.name,
       category: widget.routine.category,
@@ -121,6 +310,7 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
     );
 
     await SessionStore.instance.save(session);
+    await _deleteInProgressSession();
 
     if (mounted) Navigator.of(context).maybePop();
   }
@@ -133,39 +323,55 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
         children: [
           _SessionTopBar(
             paused: _paused,
-            onPauseToggle: () => setState(() => _paused = !_paused),
+            onPauseToggle: () {
+              setState(() => _paused = !_paused);
+              SessionNotificationService.instance.setPaused(_paused);
+            },
             title: widget.routine.name,
             elapsed: _formatDuration(_elapsed),
             onSettings: () {},
             onClose: () => Navigator.of(context).maybePop(),
           ),
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.containerMargin,
-                AppSpacing.gutter,
-                AppSpacing.containerMargin,
-                AppSpacing.gutter,
-              ),
-              children: [
-                _ExerciseHeader(
-                  muscleGroup: _currentExercise.muscleGroup,
-                  index: _currentExerciseIndex + 1,
-                  total: _exercises.length,
-                  name: _currentExercise.name,
-                  target: _currentExercise.targetRepsLabel,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                ..._buildSets(),
-                const SizedBox(height: AppSpacing.lg),
-                const _RestPreview(seconds: 90),
-                const SizedBox(height: AppSpacing.lg),
-              ],
-            ),
+            child: _hasExercises
+                ? ListView(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.containerMargin,
+                      AppSpacing.gutter,
+                      AppSpacing.containerMargin,
+                      AppSpacing.gutter,
+                    ),
+                    children: [
+                      _ExerciseHeader(
+                        muscleGroup: _currentExercise.muscleGroup,
+                        index: _currentExerciseIndex + 1,
+                        total: _exercises.length,
+                        name: _currentExercise.name,
+                        target: _currentExercise.targetRepsLabel,
+                        note: _currentExercise.note,
+                        canGoBack: _currentExerciseIndex > 0,
+                        canGoForward:
+                            _currentExerciseIndex < _exercises.length - 1,
+                        onPrevious: () =>
+                            _goToExercise(_currentExerciseIndex - 1),
+                        onNext: () =>
+                            _goToExercise(_currentExerciseIndex + 1),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      ..._buildSets(),
+                      const SizedBox(height: AppSpacing.lg),
+                      const _RestPreview(seconds: 90),
+                      const SizedBox(height: AppSpacing.lg),
+                    ],
+                  )
+                : _NoExercisesBody(routineName: widget.routine.name),
           ),
           _BottomActions(
-            onAddNote: () {},
+            onAddNote: _hasExercises ? _editExerciseNote : null,
+            hasNote: _hasExercises &&
+                (_currentExercise.note ?? '').isNotEmpty,
             onFinish: _finishWorkout,
+            canFinish: _allSetsCompleted,
           ),
         ],
       ),
@@ -173,16 +379,13 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
   }
 
   List<Widget> _buildSets() {
-    final activeIdx =
-        _currentExercise.sets.indexWhere((s) => !s.completed);
     return [
       for (var i = 0; i < _currentExercise.sets.length; i++) ...[
         _SetRow(
           number: i + 1,
           set: _currentExercise.sets[i],
-          state: _currentExercise.sets[i].completed
-              ? _SetState.completed
-              : (i == activeIdx ? _SetState.active : _SetState.upcoming),
+          state: _setStateFor(i),
+          onTap: () => _selectSet(i),
           onComplete: _completeActiveSet,
           onWeightChanged: (v) =>
               setState(() => _currentExercise.sets[i].weightKg = v),
@@ -193,6 +396,57 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
           const SizedBox(height: AppSpacing.sm),
       ],
     ];
+  }
+
+  _SetState _setStateFor(int index) {
+    if (index == _selectedSetIndex) return _SetState.active;
+    if (_currentExercise.sets[index].completed) return _SetState.completed;
+    return _SetState.upcoming;
+  }
+}
+
+class _NoExercisesBody extends StatelessWidget {
+  const _NoExercisesBody({required this.routineName});
+
+  final String routineName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.containerMargin,
+        AppSpacing.gutter,
+        AppSpacing.containerMargin,
+        AppSpacing.gutter,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            routineName,
+            style: AppTextStyles.displayLgMobile.copyWith(
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceContainerLowest,
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+            ),
+            child: Text(
+              'This workout has no exercises yet. Edit the routine to add '
+              'exercises, or tap Finish Workout to log the session.',
+              style: AppTextStyles.bodyLg.copyWith(
+                color: AppColors.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -294,6 +548,11 @@ class _ExerciseHeader extends StatelessWidget {
     required this.total,
     required this.name,
     required this.target,
+    required this.note,
+    required this.canGoBack,
+    required this.canGoForward,
+    required this.onPrevious,
+    required this.onNext,
   });
 
   final String muscleGroup;
@@ -301,6 +560,11 @@ class _ExerciseHeader extends StatelessWidget {
   final int total;
   final String name;
   final String target;
+  final String? note;
+  final bool canGoBack;
+  final bool canGoForward;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
 
   @override
   Widget build(BuildContext context) {
@@ -311,7 +575,34 @@ class _ExerciseHeader extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             CategoryPill(label: muscleGroup),
-            Text('Exercise $index of $total', style: AppTextStyles.bodyMd),
+            if (total > 1)
+              Row(
+                children: [
+                  Squish(
+                    onTap: canGoBack ? onPrevious : null,
+                    child: Icon(
+                      Icons.chevron_left_rounded,
+                      color: canGoBack
+                          ? AppColors.primary
+                          : AppColors.onSurfaceVariant.withValues(alpha: 0.35),
+                      size: 28,
+                    ),
+                  ),
+                  Text('Exercise $index of $total', style: AppTextStyles.bodyMd),
+                  Squish(
+                    onTap: canGoForward ? onNext : null,
+                    child: Icon(
+                      Icons.chevron_right_rounded,
+                      color: canGoForward
+                          ? AppColors.primary
+                          : AppColors.onSurfaceVariant.withValues(alpha: 0.35),
+                      size: 28,
+                    ),
+                  ),
+                ],
+              )
+            else
+              Text('Exercise $index of $total', style: AppTextStyles.bodyMd),
           ],
         ),
         const SizedBox(height: AppSpacing.sm),
@@ -323,6 +614,31 @@ class _ExerciseHeader extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.xs),
         Text('Target: $target', style: AppTextStyles.bodyLg),
+        if (note != null && note!.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(AppSpacing.sm),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.sticky_note_2_outlined,
+                  size: 18,
+                  color: AppColors.onSurfaceVariant,
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                Expanded(
+                  child: Text(note!, style: AppTextStyles.bodyMd),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -339,6 +655,7 @@ class _SetRow extends StatelessWidget {
     required this.number,
     required this.set,
     required this.state,
+    required this.onTap,
     required this.onComplete,
     required this.onWeightChanged,
     required this.onRepsChanged,
@@ -347,6 +664,7 @@ class _SetRow extends StatelessWidget {
   final int number;
   final WorkoutSet set;
   final _SetState state;
+  final VoidCallback onTap;
   final VoidCallback onComplete;
   final ValueChanged<double?> onWeightChanged;
   final ValueChanged<int?> onRepsChanged;
@@ -356,81 +674,85 @@ class _SetRow extends StatelessWidget {
     final isActive = state == _SetState.active;
     final isCompleted = state == _SetState.completed;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      padding: const EdgeInsets.all(AppSpacing.sm),
-      decoration: BoxDecoration(
-        color: isActive
-            ? AppColors.surfaceContainerHighest
-            : AppColors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: isActive
-            ? Border.all(
-                color: AppColors.primary.withValues(alpha: 0.25),
-                width: 1.5,
-              )
-            : null,
-        boxShadow: isActive
-            ? [
-                BoxShadow(
-                  color: AppColors.primary.withValues(alpha: 0.10),
-                  blurRadius: 18,
-                ),
-              ]
-            : null,
-      ),
-      child: Opacity(
-        opacity: state == _SetState.upcoming ? 0.6 : 1,
-        child: Row(
-          children: [
-            _LeadingBadge(state: state, number: number),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _SetField(
-                      label: 'Weight (kg)',
-                      value: set.weightKg?.toString(),
-                      editable: isActive,
-                      onChanged: (s) => onWeightChanged(double.tryParse(s)),
-                    ),
+    return Squish(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        decoration: BoxDecoration(
+          color: isActive
+              ? AppColors.surfaceContainerHighest
+              : AppColors.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: isActive
+              ? Border.all(
+                  color: AppColors.primary.withValues(alpha: 0.25),
+                  width: 1.5,
+                )
+              : null,
+          boxShadow: isActive
+              ? [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.10),
+                    blurRadius: 18,
                   ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: _SetField(
-                      label: 'Reps',
-                      value: set.reps?.toString(),
-                      editable: isActive,
-                      isInteger: true,
-                      onChanged: (s) => onRepsChanged(int.tryParse(s)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (isActive) ...[
+                ]
+              : null,
+        ),
+        child: Opacity(
+          opacity: state == _SetState.upcoming ? 0.6 : 1,
+          child: Row(
+            children: [
+              _LeadingBadge(state: state, number: number),
               const SizedBox(width: AppSpacing.sm),
-              Squish(
-                onTap: onComplete,
-                child: Container(
-                  width: 64,
-                  height: 64,
-                  decoration: BoxDecoration(
-                    color: AppColors.primaryContainer,
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                  ),
-                  alignment: Alignment.center,
-                  child: const Icon(
-                    Icons.check_rounded,
-                    color: AppColors.onPrimaryContainer,
-                    size: 32,
-                  ),
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _SetField(
+                        label: 'Weight (kg)',
+                        value: set.weightKg?.toString(),
+                        editable: isActive,
+                        onChanged: (s) => onWeightChanged(double.tryParse(s)),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: _SetField(
+                        label: 'Reps',
+                        value: set.reps?.toString(),
+                        editable: isActive,
+                        isInteger: true,
+                        onChanged: (s) => onRepsChanged(int.tryParse(s)),
+                      ),
+                    ),
+                  ],
                 ),
               ),
+              if (isActive) ...[
+                const SizedBox(width: AppSpacing.sm),
+                Squish(
+                  onTap: onComplete,
+                  child: Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryContainer,
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Icon(
+                      Icons.check_rounded,
+                      color: AppColors.onPrimaryContainer,
+                      size: 32,
+                    ),
+                  ),
+                ),
+              ],
+              if (isCompleted) const SizedBox(width: AppSpacing.xs),
             ],
-            if (isCompleted) const SizedBox(width: AppSpacing.xs),
-          ],
+          ),
         ),
       ),
     );
@@ -638,10 +960,17 @@ class _RestPreview extends StatelessWidget {
 // ────────────────────────────────────────────────────────────────────────
 
 class _BottomActions extends StatelessWidget {
-  const _BottomActions({required this.onAddNote, required this.onFinish});
+  const _BottomActions({
+    required this.onAddNote,
+    required this.hasNote,
+    required this.onFinish,
+    required this.canFinish,
+  });
 
-  final VoidCallback onAddNote;
+  final VoidCallback? onAddNote;
+  final bool hasNote;
   final VoidCallback onFinish;
+  final bool canFinish;
 
   @override
   Widget build(BuildContext context) {
@@ -660,21 +989,23 @@ class _BottomActions extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Expanded(
-            child: PrimaryPillButton(
-              label: 'Add Note',
-              background: AppColors.surfaceContainerHighest,
-              foreground: AppColors.onSurface,
-              onPressed: onAddNote,
+          if (onAddNote != null) ...[
+            Expanded(
+              child: PrimaryPillButton(
+                label: hasNote ? 'Edit Note' : 'Add Note',
+                background: AppColors.surfaceContainerHighest,
+                foreground: AppColors.onSurface,
+                onPressed: onAddNote,
+              ),
             ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
+            const SizedBox(width: AppSpacing.sm),
+          ],
           Expanded(
-            flex: 2,
+            flex: onAddNote != null ? 2 : 1,
             child: PrimaryPillButton(
               label: 'Finish Workout',
               elevated: true,
-              onPressed: onFinish,
+              onPressed: canFinish ? onFinish : null,
             ),
           ),
         ],
