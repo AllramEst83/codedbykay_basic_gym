@@ -203,24 +203,28 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
   }
 
   void _completeActiveSet() {
-    final hasMoreSets = _currentExercise.sets.any((s) => !s.completed);
+    final idx = _selectedSetIndex;
+    if (idx < 0 || idx >= _currentExercise.sets.length) return;
+    if (_currentExercise.sets[idx].completed) return;
+
     setState(() {
-      final idx = _selectedSetIndex;
-      if (idx < 0 || idx >= _currentExercise.sets.length) return;
       _currentExercise.sets[idx].completed = true;
       final next = _currentExercise.sets.indexWhere((s) => !s.completed);
       if (next >= 0) _selectedSetIndex = next;
     });
 
-    // Auto-launch the rest timer when there are still incomplete sets left
-    // either in this exercise or any later one.
-    final moreInExercise = _currentExercise.sets.any((s) => !s.completed);
-    final moreLater = _exercises
-        .skip(_currentExerciseIndex + 1)
-        .any((e) => e.sets.any((s) => !s.completed));
-    if (hasMoreSets && (moreInExercise || moreLater)) {
-      _showRestTimer();
+    final allDoneInExercise = _currentExercise.sets.every((s) => s.completed);
+    if (allDoneInExercise) {
+      final nextExIdx = _currentExerciseIndex + 1;
+      if (nextExIdx < _exercises.length) {
+        _goToExercise(nextExIdx);
+        _showRestTimer();
+      }
+      // Last exercise: Finish Workout button becomes active; nothing more to do.
+      return;
     }
+
+    _showRestTimer();
   }
 
   void _showRestTimer() {
@@ -528,8 +532,8 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
   }
 
   _SetState _setStateFor(int index) {
-    if (index == _selectedSetIndex) return _SetState.active;
     if (_currentExercise.sets[index].completed) return _SetState.completed;
+    if (index == _selectedSetIndex) return _SetState.active;
     return _SetState.upcoming;
   }
 }
